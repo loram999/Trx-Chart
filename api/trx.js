@@ -248,22 +248,28 @@ async function placeBet(session, issueNumber, selectType, amount) {
 }
 
 async function getTRXGameResults(session) {
-  try {
-    const fullUrl = `https://draw.ar-lottery01.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json?ts=${Date.now()}`;
-    const response = await makeRequest(fullUrl, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json, text/plain, */*',
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
-        Connection: 'Keep-Alive',
-      },
-    });
-    const data = response.data;
-    if (data && data.list) return { code: 0, data: { list: data.list } };
-    if (data && data.data && data.data.list) return { code: 0, data: data.data };
-  } catch (e) {
-    log('WARN', `TRX draw API failed: ${e.message}`);
+  const urls = [
+    'https://draw.ar-lottery01.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json',
+    'https://draw.ar-lottery03.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json',
+    'https://draw.ar-lottery02.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json',
+  ];
+  for (const url of urls) {
+    try {
+      const response = await makeRequest(url + '?ts=' + Date.now(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+          Connection: 'Keep-Alive',
+        },
+      });
+      const data = response.data;
+      if (data && data.list) return { code: 0, data: { list: data.list } };
+      if (data && data.data && data.data.list) return { code: 0, data: data.data };
+    } catch (e) {
+      log('WARN', `TRX draw API failed (${url}): ${e.message}`);
+    }
   }
 
   if (!session) return { code: -1, msg: 'No session for fallback' };
