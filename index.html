@@ -418,6 +418,231 @@
         /* Mobile */
         @media (max-width: 720px) { .panel { display: none; } }
         @media (max-width: 480px) { .updated-lbl { display: none; } }
+
+        /* ═══════════════════════════════════════════════════
+           TRX TRADING — Login pill, bet block, tabs, modal
+           ═══════════════════════════════════════════════════ */
+        .user-pill {
+            display: flex; align-items: center; gap: 6px;
+            background: #f0f7ff; border: 1px solid #d0e4ff;
+            color: #2962ff; padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .user-pill:hover { background: #e0efff; }
+        body.night .user-pill { background: #1e1e28; border-color: #2a2a35; color: #5c8fff; }
+        .user-icon { font-size: 12px; }
+        .user-balance { color: #26a69a; font-size: 10px; margin-left: 2px; }
+        .logout-btn {
+            background: transparent; border: 1px solid #ef5350;
+            color: #ef5350; padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; cursor: pointer;
+        }
+        .logout-btn:hover { background: rgba(239,83,80,.1); }
+
+        .trade-block {
+            padding: 10px 12px; border-top: 1px solid #e0e3eb;
+            background: #fafbff;
+        }
+        body.night .trade-block { background: #131722; border-color: #2a2a35; }
+        .bet-info-row {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 11px; margin-bottom: 8px; flex-wrap: wrap;
+        }
+        .bet-info-lbl { color: #787b86; text-transform: uppercase; letter-spacing: .4px; font-size: 10px; }
+        .bet-info-val { font-weight: 700; color: #131722; }
+        body.night .bet-info-val { color: #d1d4dc; }
+        .bet-info-sep { color: #adb0bc; margin: 0 2px; }
+        .bet-amount-row {
+            display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap;
+        }
+        .chip-btn {
+            flex: 1; min-width: 44px; padding: 6px 4px;
+            background: #fff; border: 1px solid #e0e3eb;
+            border-radius: 6px; color: #131722; font-size: 11px; font-weight: 700;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .chip-btn:hover { background: #f0f3fa; border-color: #2962ff; color: #2962ff; }
+        .chip-btn.active { background: #2962ff; color: #fff; border-color: #2962ff; }
+        body.night .chip-btn { background: #1e1e28; border-color: #2a2a35; color: #d1d4dc; }
+        body.night .chip-btn:hover { background: #2a2a35; }
+        body.night .chip-btn.active { background: #2962ff; color: #fff; }
+        .chip-input {
+            flex: 1.5; min-width: 60px; padding: 6px 6px;
+            background: #fff; border: 1px solid #e0e3eb;
+            border-radius: 6px; color: #131722; font-size: 11px; font-weight: 600;
+            outline: none;
+        }
+        .chip-input:focus { border-color: #2962ff; }
+        body.night .chip-input { background: #1e1e28; border-color: #2a2a35; color: #d1d4dc; }
+        .bet-choice-row {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+        }
+        .bet-btn {
+            padding: 10px 6px; border: none; border-radius: 8px;
+            color: #fff; font-weight: 800; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            letter-spacing: 1px; transition: all 0.15s;
+            box-shadow: 0 2px 6px rgba(0,0,0,.1);
+        }
+        .bet-btn.big { background: linear-gradient(135deg, #ef5350, #c62828); }
+        .bet-btn.big:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(239,83,80,.4); }
+        .bet-btn.small { background: linear-gradient(135deg, #26a69a, #00897b); }
+        .bet-btn.small:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(38,166,154,.4); }
+        .bet-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .bet-btn-lbl { font-size: 14px; }
+        .bet-btn-amt { font-size: 10px; opacity: .9; font-weight: 600; }
+
+        .tabs-header {
+            display: flex; align-items: center; gap: 4px;
+            padding: 8px 10px 0; border-top: 1px solid #e0e3eb;
+        }
+        body.night .tabs-header { border-color: #2a2a35; }
+        .tab-btn {
+            background: transparent; border: none;
+            color: #787b86; padding: 6px 10px;
+            font-size: 11px; font-weight: 700; cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.15s;
+        }
+        .tab-btn:hover { color: #2962ff; }
+        .tab-btn.active { color: #2962ff; border-bottom-color: #2962ff; }
+        .tab-refresh {
+            margin-left: auto; background: transparent; border: none;
+            color: #5c8fff; font-size: 16px; cursor: pointer;
+            padding: 4px 8px;
+        }
+        .tab-refresh:hover { color: #2962ff; }
+        .tab-panel {
+            display: none; padding: 6px 10px 10px;
+            max-height: 280px; overflow-y: auto;
+        }
+        .tab-panel.active { display: block; }
+        .tab-panel-hint {
+            font-size: 9px; color: #787b86; text-transform: uppercase;
+            letter-spacing: .5px; margin-bottom: 6px;
+        }
+        .results-list {
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .game-result-row, .bet-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 8px; background: #fff;
+            border: 1px solid #e0e3eb; border-radius: 6px;
+            font-size: 11px;
+        }
+        body.night .game-result-row, body.night .bet-row { background: #1e1e28; border-color: #2a2a35; }
+        .result-period, .bet-period { color: #787b86; font-family: monospace; font-weight: 600; }
+        .result-num {
+            display: inline-block; width: 22px; height: 22px;
+            border-radius: 50%; text-align: center; line-height: 22px;
+            font-weight: 800; font-size: 12px; color: #fff;
+        }
+        .result-num.big { background: #ef5350; }
+        .result-num.small { background: #26a69a; }
+        .result-bs {
+            font-size: 9px; font-weight: 800; padding: 2px 6px;
+            border-radius: 4px; letter-spacing: .5px;
+        }
+        .result-bs.big { background: rgba(239,83,80,.15); color: #ef5350; }
+        .result-bs.small { background: rgba(38,166,154,.15); color: #26a69a; }
+        .bet-tag { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+        .bet-tag.big { background: rgba(239,83,80,.15); color: #ef5350; }
+        .bet-tag.small { background: rgba(38,166,154,.15); color: #26a69a; }
+        .bet-amount { font-weight: 700; font-size: 11px; }
+        .bet-amount.win { color: #26a69a; }
+        .bet-amount.loss { color: #ef5350; }
+        .bet-amount.pending { color: #787b86; }
+        .bet-result-badge {
+            font-size: 9px; font-weight: 800; padding: 2px 6px;
+            border-radius: 4px; letter-spacing: .5px;
+        }
+        .bet-result-badge.win { background: rgba(38,166,154,.15); color: #26a69a; }
+        .bet-result-badge.loss { background: rgba(239,83,80,.15); color: #ef5350; }
+        .bet-result-badge.pending { background: rgba(120,123,134,.15); color: #787b86; }
+        .bet-draw {
+            font-size: 9px; color: #2962ff; font-weight: 700;
+            background: rgba(41,98,255,.1); padding: 2px 5px; border-radius: 4px;
+        }
+        .empty-state {
+            padding: 16px 8px; text-align: center;
+            color: #adb0bc; font-size: 11px;
+        }
+
+        /* Login Modal */
+        .modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,.55);
+            display: none; justify-content: center; align-items: center;
+            z-index: 100; padding: 16px;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: #fff; border-radius: 16px;
+            width: 100%; max-width: 360px; padding: 24px;
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0,0,0,.3);
+        }
+        body.night .modal-content { background: #1e1e28; color: #d1d4dc; }
+        .modal-close {
+            position: absolute; top: 12px; right: 16px;
+            font-size: 24px; color: #787b86; cursor: pointer;
+            line-height: 1; user-select: none;
+        }
+        .modal-close:hover { color: #ef5350; }
+        .modal-title {
+            font-size: 18px; font-weight: 800; color: #2962ff;
+            margin-bottom: 4px;
+        }
+        .modal-sub {
+            font-size: 11px; color: #787b86; margin-bottom: 18px;
+        }
+        .site-selector {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+            margin-bottom: 16px;
+        }
+        .site-btn {
+            padding: 10px; background: #f0f3fa;
+            border: 1px solid #e0e3eb; border-radius: 8px;
+            color: #131722; font-size: 12px; font-weight: 700;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .site-btn:hover { background: #e0e9ff; }
+        .site-btn.active {
+            background: linear-gradient(135deg, #2962ff, #5c8fff);
+            color: #fff; border-color: #2962ff;
+        }
+        body.night .site-btn { background: #2a2a35; border-color: #2a2a35; color: #d1d4dc; }
+        body.night .site-btn.active { background: #2962ff; color: #fff; }
+        .form-row { margin-bottom: 12px; }
+        .form-lbl {
+            display: block; font-size: 10px; color: #787b86;
+            text-transform: uppercase; letter-spacing: .4px;
+            margin-bottom: 4px; font-weight: 700;
+        }
+        .form-input {
+            width: 100%; padding: 10px 12px;
+            background: #f7f8fa; border: 1px solid #e0e3eb;
+            border-radius: 8px; color: #131722; font-size: 13px;
+            outline: none; transition: all 0.15s;
+        }
+        .form-input:focus { border-color: #2962ff; background: #fff; }
+        body.night .form-input { background: #131722; border-color: #2a2a35; color: #d1d4dc; }
+        .login-btn {
+            width: 100%; padding: 12px;
+            background: linear-gradient(135deg, #2962ff, #5c8fff);
+            border: none; border-radius: 8px;
+            color: #fff; font-size: 13px; font-weight: 800;
+            cursor: pointer; transition: all 0.15s;
+            letter-spacing: .5px;
+        }
+        .login-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(41,98,255,.4); }
+        .login-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .login-status {
+            margin-top: 10px; text-align: center;
+            font-size: 11px; min-height: 14px;
+        }
+        .login-status.error { color: #ef5350; }
+        .login-status.success { color: #26a69a; }
     </style>
 </head>
 <body>
@@ -444,6 +669,12 @@
     <div class="spacer"></div>
     <div class="updated-lbl" id="hUpdated"></div>
     <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+    <div class="user-pill" id="userPill" onclick="openLoginModal()" title="Login">
+        <span class="user-icon" id="userIcon">👤</span>
+        <span class="user-label" id="userLabel">Login</span>
+        <span class="user-balance" id="userBalance" style="display:none;"></span>
+    </div>
+    <button class="logout-btn" id="logoutBtn" onclick="handleLogout()" style="display:none;">Logout</button>
     <div class="night-toggle" onclick="toggleNight()" id="nightToggle">
         <span class="toggle-icon" id="nightIcon">☀️</span>
         <div class="toggle-track" id="toggleTrack">
@@ -557,6 +788,77 @@
             <div class="stat"><div class="stat-n" id="sCorrect">0</div><div class="stat-l">Correct</div></div>
             <div class="stat"><div class="stat-n" id="sAccuracy">—</div><div class="stat-l">Accuracy</div></div>
         </div>
+
+        <!-- ═══ TRX TRADING — Bet + Tabs ═══ -->
+        <div class="trade-block">
+            <div class="panel-heading">Quick Trade & Bet</div>
+            <div class="bet-info-row">
+                <span class="bet-info-lbl">Issue</span>
+                <span class="bet-info-val" id="betIssue">—</span>
+                <span class="bet-info-sep">·</span>
+                <span class="bet-info-lbl">Balance</span>
+                <span class="bet-info-val" id="betBalance">0.00 Ks</span>
+            </div>
+            <div class="bet-amount-row">
+                <button class="chip-btn" onclick="setBetAmount(100)">100</button>
+                <button class="chip-btn" onclick="setBetAmount(500)">500</button>
+                <button class="chip-btn" onclick="setBetAmount(1000)">1K</button>
+                <button class="chip-btn" onclick="setBetAmount(5000)">5K</button>
+                <button class="chip-btn" onclick="setBetAmount(10000)">10K</button>
+                <input class="chip-input" id="customBetAmount" type="number" placeholder="Custom" min="1" onchange="onCustomBetAmount()">
+            </div>
+            <div class="bet-choice-row">
+                <button class="bet-btn big" id="btnBetBig" onclick="placeBet('B')">
+                    <span class="bet-btn-lbl">BIG</span>
+                    <span class="bet-btn-amt" id="betBigAmt">100 Ks</span>
+                </button>
+                <button class="bet-btn small" id="btnBetSmall" onclick="placeBet('S')">
+                    <span class="bet-btn-lbl">SMALL</span>
+                    <span class="bet-btn-amt" id="betSmallAmt">100 Ks</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tabs-header">
+            <button class="tab-btn active" id="tab-gameResults" onclick="switchResultTab('gameResults')">Game Results</button>
+            <button class="tab-btn" id="tab-betHistory" onclick="switchResultTab('betHistory')">History</button>
+            <button class="tab-refresh" onclick="refreshResultsTabs()" title="Refresh">⟳</button>
+        </div>
+        <div class="tab-panel active" id="panel-gameResults">
+            <div class="tab-panel-hint">TRX Last 10 Results</div>
+            <div class="results-list" id="gameResultsList">
+                <div class="empty-state">Login to load TRX game results.</div>
+            </div>
+        </div>
+        <div class="tab-panel" id="panel-betHistory">
+            <div class="tab-panel-hint">Last 10 Bet Results</div>
+            <div class="results-list" id="betHistoryList">
+                <div class="empty-state">No bets yet. Tap BIG or SMALL to place your first order.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ LOGIN MODAL ═══ -->
+<div class="modal" id="loginModal">
+    <div class="modal-content">
+        <div class="modal-close" onclick="closeLoginModal()">×</div>
+        <div class="modal-title">TRX TRADING</div>
+        <div class="modal-sub">Connect your game account to start trading</div>
+        <div class="site-selector">
+            <button class="site-btn active" id="site-6Lottery" onclick="selectSite('6Lottery')">6Lottery</button>
+            <button class="site-btn" id="site-777" onclick="selectSite('777BIGWIN')">777BIGWIN</button>
+        </div>
+        <div class="form-row">
+            <label class="form-lbl">Phone Number</label>
+            <input class="form-input" id="loginPhone" type="tel" placeholder="Enter phone number" maxlength="15">
+        </div>
+        <div class="form-row">
+            <label class="form-lbl">Password</label>
+            <input class="form-input" id="loginPassword" type="password" placeholder="Enter password" maxlength="50">
+        </div>
+        <button class="login-btn" id="loginBtn" onclick="handleLogin()">Login Account</button>
+        <div class="login-status" id="loginStatus"></div>
     </div>
 </div>
 
@@ -1991,6 +2293,359 @@ chart.applyOptions({
 initShimmer();
 fetchData();
 setInterval(fetchData, CFG.FETCH_MS);
+
+/* ══════════════════════════════════════════
+   TRX TRADING — login, bet, results, history
+══════════════════════════════════════════ */
+const TRX = {
+    selectedSite: '6Lottery',
+    betAmount: 100,
+    lastIssue: null,
+    pollTimer: null,
+};
+
+function getCreds() {
+    try { return JSON.parse(localStorage.getItem('trx_credentials') || 'null'); }
+    catch { return null; }
+}
+function setCreds(val) {
+    if (val === null) localStorage.removeItem('trx_credentials');
+    else localStorage.setItem('trx_credentials', JSON.stringify(val));
+}
+
+function apiRequest(endpoint, method = 'POST', body = null) {
+    const options = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) options.body = JSON.stringify(body);
+    return fetch(endpoint, options).then(r => r.json());
+}
+
+function selectSite(site) {
+    TRX.selectedSite = site;
+    document.querySelectorAll('.site-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('site-' + (site === '777BIGWIN' ? '777' : '6Lottery')).classList.add('active');
+}
+
+function openLoginModal() {
+    const creds = getCreds();
+    if (creds && creds.token) {
+        // Already logged in — show logout confirm
+        if (confirm(`Logged in as ${creds.user?.nickname || creds.user?.username || 'Trader'}\nBalance: ${(creds.balance || 0).toFixed(2)} Ks\n\nLogout?`)) {
+            handleLogout();
+        }
+        return;
+    }
+    document.getElementById('loginModal').classList.add('show');
+    setTimeout(() => document.getElementById('loginPhone').focus(), 100);
+}
+
+function closeLoginModal() {
+    document.getElementById('loginModal').classList.remove('show');
+    document.getElementById('loginStatus').textContent = '';
+    document.getElementById('loginStatus').className = 'login-status';
+}
+
+async function handleLogin() {
+    const phone = document.getElementById('loginPhone').value.trim();
+    const password = document.getElementById('loginPassword').value.trim();
+    if (!phone || !password) {
+        setLoginStatus('Please enter phone and password', 'error');
+        return;
+    }
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.textContent = 'Authenticating...';
+    try {
+        const result = await apiRequest('/api/trx?action=login', 'POST', {
+            phone, password, site: TRX.selectedSite,
+        });
+        if (result.success) {
+            setCreds({
+                token: result.token,
+                tokenHeader: result.tokenHeader,
+                baseUrl: result.baseUrl,
+                site: TRX.selectedSite,
+                balance: result.balance,
+                user: result.user,
+            });
+            setLoginStatus('Login successful!', 'success');
+            updateUserPill();
+            setTimeout(() => {
+                closeLoginModal();
+                refreshBalance();
+                refreshResultsTabs();
+            }, 600);
+        } else {
+            setLoginStatus(result.error || 'Login failed', 'error');
+        }
+    } catch (e) {
+        setLoginStatus('Connection error: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Login Account';
+    }
+}
+
+function setLoginStatus(msg, type) {
+    const el = document.getElementById('loginStatus');
+    el.textContent = msg;
+    el.className = 'login-status ' + (type || '');
+}
+
+function handleLogout() {
+    setCreds(null);
+    updateUserPill();
+    document.getElementById('betHistoryList').innerHTML =
+        '<div class="empty-state">No bets yet. Tap BIG or SMALL to place your first order.</div>';
+}
+
+function updateUserPill() {
+    const creds = getCreds();
+    const label = document.getElementById('userLabel');
+    const bal = document.getElementById('userBalance');
+    const icon = document.getElementById('userIcon');
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (creds && creds.token) {
+        const name = creds.user?.nickname || creds.user?.username || 'Trader';
+        label.textContent = name.substring(0, 10);
+        bal.textContent = (creds.balance || 0).toFixed(2) + ' Ks';
+        bal.style.display = 'inline';
+        icon.textContent = '✓';
+        logoutBtn.style.display = 'inline-block';
+    } else {
+        label.textContent = 'Login';
+        bal.style.display = 'none';
+        icon.textContent = '👤';
+        logoutBtn.style.display = 'none';
+    }
+}
+
+async function refreshBalance() {
+    const creds = getCreds();
+    if (!creds || !creds.token) return;
+    try {
+        const result = await apiRequest('/api/trx?action=getBalance', 'POST', {
+            token: creds.token,
+            tokenHeader: creds.tokenHeader,
+            baseUrl: creds.baseUrl,
+        });
+        if (result.success) {
+            creds.balance = result.balance;
+            setCreds(creds);
+            updateUserPill();
+            const betBal = document.getElementById('betBalance');
+            if (betBal) betBal.textContent = (result.balance || 0).toFixed(2) + ' Ks';
+        }
+    } catch (e) {
+        console.error('Balance refresh error:', e);
+    }
+}
+
+function setBetAmount(amt) {
+    TRX.betAmount = amt;
+    document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('active'));
+    event.target?.classList.add('active');
+    document.getElementById('customBetAmount').value = '';
+    updateBetAmountDisplay();
+}
+
+function onCustomBetAmount() {
+    const v = parseFloat(document.getElementById('customBetAmount').value);
+    if (v > 0) {
+        TRX.betAmount = v;
+        document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('active'));
+        updateBetAmountDisplay();
+    }
+}
+
+function updateBetAmountDisplay() {
+    const amt = TRX.betAmount.toLocaleString() + ' Ks';
+    const big = document.getElementById('betBigAmt');
+    const small = document.getElementById('betSmallAmt');
+    if (big) big.textContent = amt;
+    if (small) small.textContent = amt;
+}
+
+async function placeBet(choice) {
+    const creds = getCreds();
+    if (!creds || !creds.token) {
+        openLoginModal();
+        return;
+    }
+    const amount = TRX.betAmount;
+    if (!amount || amount <= 0) {
+        alert('Please select a valid wager amount');
+        return;
+    }
+    const btn = choice === 'B' ? document.getElementById('btnBetBig') : document.getElementById('btnBetSmall');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="bet-btn-lbl">...</span>';
+    try {
+        // Get current issue
+        const issueRes = await fetch(
+            `/api/trx?action=getIssue&token=${encodeURIComponent(creds.token)}&tokenHeader=${encodeURIComponent(creds.tokenHeader || '')}&baseUrl=${encodeURIComponent(creds.baseUrl)}`
+        ).then(r => r.json());
+
+        if (!issueRes.success || !issueRes.issueNumber) {
+            alert('Could not fetch active TRX issue: ' + (issueRes.error || 'unknown'));
+            return;
+        }
+
+        const selectType = choice === 'B' ? 13 : 14;
+        const betRes = await apiRequest('/api/trx?action=placeBet', 'POST', {
+            token: creds.token,
+            tokenHeader: creds.tokenHeader,
+            baseUrl: creds.baseUrl,
+            issueNumber: issueRes.issueNumber,
+            selectType: selectType,
+            amount: amount,
+        });
+
+        if (betRes.success) {
+            alert(`✓ Order Placed!\n${choice === 'B' ? 'BIG' : 'SMALL'} ${amount} Ks\nIssue ${issueRes.issueNumber}`);
+            refreshBalance();
+            setTimeout(() => loadBetHistory(), 1500);
+            switchResultTab('betHistory');
+        } else {
+            alert('Bet failed: ' + (betRes.error || 'unknown'));
+        }
+    } catch (e) {
+        alert('Betting error: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+function switchResultTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const tabBtn = document.getElementById('tab-' + tab);
+    const panel = document.getElementById('panel-' + tab);
+    if (tabBtn) tabBtn.classList.add('active');
+    if (panel) panel.classList.add('active');
+    if (tab === 'gameResults') loadGameResults();
+    if (tab === 'betHistory') loadBetHistory();
+}
+
+async function refreshResultsTabs() {
+    await Promise.all([loadGameResults(), loadBetHistory()]);
+}
+
+async function loadGameResults() {
+    const list = document.getElementById('gameResultsList');
+    if (!list) return;
+    const creds = getCreds();
+    try {
+        const body = creds && creds.token
+            ? { token: creds.token, tokenHeader: creds.tokenHeader, baseUrl: creds.baseUrl }
+            : {};
+        const data = await apiRequest('/api/trx?action=getGameResults', 'POST', body);
+        if (!data.success || !data.results || data.results.length === 0) {
+            list.innerHTML = `<div class="empty-state">${data.error || 'No TRX results available.'}</div>`;
+            return;
+        }
+        list.innerHTML = data.results.map((r) => {
+            const bs = r.bs || (parseInt(r.number, 10) >= 5 ? 'B' : 'S');
+            const bsClass = bs === 'B' ? 'big' : 'small';
+            const periodShort = String(r.period || '').slice(-8);
+            return `
+                <div class="game-result-row">
+                    <span class="result-period">#${periodShort || r.period}</span>
+                    <span class="result-num ${bsClass}">${r.number}</span>
+                    <span class="result-bs ${bsClass}">${bs === 'B' ? 'BIG' : 'SMALL'}</span>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        list.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+    }
+}
+
+async function loadBetHistory() {
+    const list = document.getElementById('betHistoryList');
+    if (!list) return;
+    const creds = getCreds();
+    if (!creds || !creds.token) {
+        list.innerHTML = '<div class="empty-state">Login to view bet history.</div>';
+        return;
+    }
+    try {
+        const data = await apiRequest('/api/trx?action=getHistory', 'POST', {
+            token: creds.token,
+            tokenHeader: creds.tokenHeader,
+            baseUrl: creds.baseUrl,
+        });
+        if (!data.success || !data.history || data.history.length === 0) {
+            list.innerHTML = '<div class="empty-state">No bets yet. Tap BIG or SMALL to place your first order.</div>';
+            return;
+        }
+        list.innerHTML = data.history.slice(0, 10).map((item) => {
+            const choice = String(item.choice || '').toUpperCase();
+            const betText = choice === 'B' ? 'BIG' : (choice === 'S' ? 'SMALL' : choice);
+            const betClass = choice === 'B' ? 'big' : (choice === 'S' ? 'small' : '');
+            const result = String(item.result || 'PENDING').toUpperCase();
+            const isWin = result === 'WIN';
+            const isLose = result === 'LOSE' || result === 'LOSS';
+            const isPending = result === 'PENDING';
+            const resultClass = isWin ? 'win' : isLose ? 'loss' : 'pending';
+            const resultText = isWin ? 'WIN' : isLose ? 'LOSE' : 'PENDING';
+            const amount = Number(item.amount) || 0;
+            const profit = Number(item.profit);
+            let amountText = `${amount.toLocaleString()} Ks`;
+            if (isWin) amountText = `+${Math.abs(profit || amount).toLocaleString()} Ks`;
+            else if (isLose) amountText = `-${Math.abs(profit ? Math.abs(profit) : amount).toLocaleString()} Ks`;
+            const periodShort = String(item.period || '').slice(-8);
+            const drawHtml = item.resultNumber !== null && item.resultNumber !== undefined && item.resultNumber !== ''
+                ? `<span class="bet-draw">Draw ${item.resultNumber}</span>` : '';
+            return `
+                <div class="bet-row">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span class="bet-period">#${periodShort || item.period}</span>
+                        <span class="bet-tag ${betClass}">${betText}</span>
+                        ${drawHtml}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="bet-amount ${resultClass}">${amountText}</span>
+                        <span class="bet-result-badge ${resultClass}">${resultText}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        list.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+    }
+}
+
+function updateBetIssue() {
+    const cur = document.getElementById('hCurrent')?.textContent || '—';
+    const betIssue = document.getElementById('betIssue');
+    if (betIssue) betIssue.textContent = cur;
+    if (cur && cur !== '—' && cur !== TRX.lastIssue) {
+        TRX.lastIssue = cur;
+        refreshBalance();
+    }
+}
+
+// Hook into existing fetchData for periodic updates
+const _origFetchData = fetchData;
+fetchData = async function() {
+    await _origFetchData();
+    updateBetIssue();
+    loadGameResults();
+};
+
+// Initialize trading UI on load
+(() => {
+    updateUserPill();
+    updateBetAmountDisplay();
+    updateBetIssue();
+    refreshResultsTabs();
+    setInterval(() => {
+        const creds = getCreds();
+        if (creds && creds.token) refreshBalance();
+    }, 30000);
+})();
 </script>
 
 
