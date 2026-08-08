@@ -54,28 +54,63 @@ function fetchJson(url) {
   });
 }
 
-async function fetchAllDraws({ pageNo = 1, pageSize = 2000 } = {}) {
-  // Try primary first, then fallbacks. Walk pages via pageNo/pageSize until
-  // upstream returns < pageSize or we hit the global cap.
+async function fetchAllDraws({ pageNo: _pageNo = 1, pageSize: _pageSize = 2000 } = {}) {
+  // The upstream GetHistoryIssuePage.json caps each response (typically 10–200).
+  // Walk pages 1..N to accumulate many rows, then dedupe by issueNumber.
+  // Honor ?limit on the caller side so we stop early once we have enough.
+  const callerLimit = Math.min(
+    parseInt(arguments[0] && arguments[0].limit, 10) || 0,
+    20000
+  );
+  const upstreamPageSize = 200;
+  const maxPages = 50;
+
   const urls = [PRIMARY_URL, ...FALLBACK_URLS];
   for (const url of urls) {
-    try {
-      const params = new URLSearchParams({
-        pageNo: String(pageNo),
-        pageSize: String(pageSize),
-        ts: String(Date.now()),
-      });
-      const json = await fetchJson(url + '?' + params.toString());
-      const list = json?.list || json?.data?.list || [];
-      const total = json?.data?.totalCount ?? json?.totalCount ?? json?.total ?? null;
-      if (list.length > 0) {
-        return { list, total, pageNo, pageSize, hasMore: total != null ? pageNo * pageSize < total : list.length === pageSize };
+    const collected = [];
+    const seen = new Set();
+    let upstreamTotal = null;
+
+    for (let page = 1; page <= maxPages; page++) {
+      try {
+        const params = new URLSearchParams({
+          pageNo: String(page),
+          pageSize: String(upstreamPageSize),
+          ts: String(Date.now()),
+        });
+        const json = await fetchJson(url + '?' + params.toString());
+        const list = json?.list || json?.data?.list || [];
+        upstreamTotal = json?.data?.totalCount ?? json?.totalCount ?? upstreamTotal;
+
+        if (list.length === 0) break;
+        for (const item of list) {
+          const key = String(item.issueNumber || item.issuenumber || item.period || '');
+          if (!key) continue;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          collected.push(item);
+          if (callerLimit && collected.length >= callerLimit) break;
+        }
+        if (callerLimit && collected.length >= callerLimit) break;
+        if (list.length < upstreamPageSize) break;
+        await new Promise((r) => setTimeout(r, 80));
+      } catch (e) {
+        console.warn('[trx-data] fetch failed:', url, e.message);
+        break;
       }
-    } catch (e) {
-      console.warn('[trx-data] fetch failed:', url, e.message);
+    }
+
+    if (collected.length > 0) {
+      return {
+        list: collected,
+        total: upstreamTotal ?? collected.length,
+        pageNo: 1,
+        pageSize: upstreamPageSize,
+        hasMore: upstreamTotal != null ? collected.length < upstreamTotal : false,
+      };
     }
   }
-  return { list: [], total: 0, pageNo, pageSize, hasMore: false };
+  return { list: [], total: 0, pageNo: 1, pageSize: upstreamPageSize, hasMore: false };
 }
 
 function normalize(item) {
@@ -109,7 +144,7 @@ module.exports = async function handler(req, res) {
       10000
     );
 
-    const result = await fetchAllDraws({ pageNo, pageSize });
+    const result = await fetchAllDraws({ pageNo, pageSize, limit });
     const list = result.list.slice(0, limit).map(normalize);
 
     // Cache 5s on Vercel Edge to reduce upstream hits

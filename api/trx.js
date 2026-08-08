@@ -606,14 +606,33 @@ module.exports = async function handler(req, res) {
         Math.max(parseInt(body.pageSize || '20', 10) || 20, 1),
         100
       );
-      const useEmerd = body.source !== 'legacy';
-      const result = useEmerd
-        ? await getMyEmerdList(session, { pageNo, pageSize })
-        : await getRecentBets(session, pageNo, pageSize);
+      const sourcePref = (body.source || 'emerd').toLowerCase();
+
+      // Try the preferred source first, fall back to the other if it returns
+      // empty / errored so the History tab always shows the user's bets.
+      let result;
+      let source;
+      const attempts = sourcePref === 'legacy'
+        ? ['legacy', 'emerd']
+        : ['emerd', 'legacy'];
+
+      for (const which of attempts) {
+        if (which === 'emerd') {
+          result = await getMyEmerdList(session, { pageNo, pageSize });
+          source = 'emerd';
+        } else {
+          result = await getRecentBets(session, pageNo, pageSize);
+          source = 'legacy';
+        }
+        log('INFO', `getHistory source=${source} list=${(result.list || []).length} err=${result.error || ''}`);
+        if ((result.list || []).length > 0) break;
+      }
+
       const history = (result.list || []).map(mapBetRecord);
       sendJson(res, 200, {
         success: true,
         history,
+        source,
         pageNo: result.pageNo,
         pageSize: result.pageSize,
         total: result.total,
