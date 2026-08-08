@@ -831,10 +831,11 @@
             </div>
         </div>
         <div class="tab-panel" id="panel-betHistory">
-            <div class="tab-panel-hint">Last 10 Bet Results</div>
+            <div class="tab-panel-hint">My Bets — page through your history</div>
             <div class="results-list" id="betHistoryList">
-                <div class="empty-state">No bets yet. Tap BIG or SMALL to place your first order.</div>
+                <div class="empty-state">Login to view bet history.</div>
             </div>
+            <div id="historyPager"></div>
         </div>
     </div>
 </div>
@@ -1194,14 +1195,20 @@ function refreshHLines() {
 ══════════════════════════════════════════ */
 let _initialLoadDone = false;
 
+function extractDrawList(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.list)) return payload.list;
+    return [];
+}
+
 async function fetchData() {
     try {
         if (!_initialLoadDone) {
             // ── Phase 1: quick load (1200 candles) — chart shows fast ──────
             const quickRes = await fetch('/api/trx-data?limit=1200&t=' + Date.now());
             if (quickRes.ok) {
-                const quickList = await quickRes.json();
-                if (Array.isArray(quickList) && quickList.length > 0) {
+                const quickList = extractDrawList(await quickRes.json());
+                if (quickList.length > 0) {
                     applyUpdate(quickList);
                     updateHeader(quickList);
                     updatePrediction(quickList);
@@ -1211,10 +1218,10 @@ async function fetchData() {
             _initialLoadDone = true;
             setTimeout(async () => {
                 try {
-                    const fullRes = await fetch('/api/trx-data?t=' + Date.now());
+                    const fullRes = await fetch('/api/trx-data?limit=10000&t=' + Date.now());
                     if (!fullRes.ok) return;
-                    const fullList = await fullRes.json();
-                    if (Array.isArray(fullList) && fullList.length > 0) {
+                    const fullList = extractDrawList(await fullRes.json());
+                    if (fullList.length > 0) {
                         applyUpdate(fullList);
                         updateHeader(fullList);
                         updatePrediction(fullList);
@@ -1223,10 +1230,10 @@ async function fetchData() {
             }, 500);
         } else {
             // ── Regular interval fetch: full data ────────────────────────
-            const res  = await fetch('/api/trx-data?t=' + Date.now());
+            const res  = await fetch('/api/trx-data?limit=10000&t=' + Date.now());
             if (!res.ok) throw new Error('HTTP ' + res.status);
-            const list = await res.json();
-            if (!Array.isArray(list) || list.length === 0) return;
+            const list = extractDrawList(await res.json());
+            if (list.length === 0) return;
             applyUpdate(list);
             updateHeader(list);
             updatePrediction(list);
@@ -2311,6 +2318,14 @@ function getCreds() {
 function setCreds(val) {
     if (val === null) localStorage.removeItem('trx_credentials');
     else localStorage.setItem('trx_credentials', JSON.stringify(val));
+    // Reset history pagination when login state changes
+    if (typeof _histState !== 'undefined') {
+        _histState.pageNo = 1;
+        _histState.pageSize = _histState.pageSize || 20;
+        _histState.total = null;
+        _histState.hasMore = false;
+        _histState.lastError = null;
+    }
 }
 
 function apiRequest(endpoint, method = 'POST', body = null) {
@@ -2562,25 +2577,71 @@ async function loadGameResults() {
     }
 }
 
-async function loadBetHistory() {
+/* History tab state */
+const _histState = { pageNo: 1, pageSize: 20, loading: false, total: null, hasMore: false, lastError: null };
+
+function detectSiteFromCreds(creds) {
+    if (!creds || !creds.baseUrl) return null;
+    if (creds.baseUrl.includes('bigwinqaz')) return '777BIGWIN';
+    if (creds.baseUrl.includes('6lottery')) return '6Lottery';
+    return null;
+}
+
+function setHistoryPagerState({ pageNo, pageSize, total, hasMore }) {
+    if (typeof pageNo === 'number') _histState.pageNo = pageNo;
+    if (typeof pageSize === 'number') _histState.pageSize = pageSize;
+    if (typeof total === 'number' || total === null) _histState.total = total;
+    if (typeof hasMore === 'boolean') _histState.hasMore = hasMore;
+}
+
+async function loadBetHistory(opts = {}) {
     const list = document.getElementById('betHistoryList');
     if (!list) return;
     const creds = getCreds();
     if (!creds || !creds.token) {
         list.innerHTML = '<div class="empty-state">Login to view bet history.</div>';
+        _renderHistoryPager();
         return;
     }
+    const pageNo = opts.pageNo || _histState.pageNo || 1;
+    const pageSize = opts.pageSize || _histState.pageSize || 20;
+    const site = detectSiteFromCreds(creds);
+    if (opts.append && opts.target) {
+        // Append mode for "load more"
+    }
+    _histState.loading = true;
+    list.insertAdjacentHTML('beforeend', '<div class="history-loading" data-loading>Loading…</div>');
     try {
         const data = await apiRequest('/api/trx?action=getHistory', 'POST', {
             token: creds.token,
             tokenHeader: creds.tokenHeader,
             baseUrl: creds.baseUrl,
+            pageNo,
+            pageSize,
         });
-        if (!data.success || !data.history || data.history.length === 0) {
-            list.innerHTML = '<div class="empty-state">No bets yet. Tap BIG or SMALL to place your first order.</div>';
+        list.querySelectorAll('[data-loading]').forEach((n) => n.remove());
+        _histState.loading = false;
+        if (!data.success || !data.history) {
+            const errMsg = data.error || _histState.lastError || 'Failed to load history.';
+            list.innerHTML = `<div class="empty-state">${errMsg}</div>`;
+            setHistoryPagerState({ pageNo, pageSize, total: 0, hasMore: false });
+            _renderHistoryPager();
             return;
         }
-        list.innerHTML = data.history.slice(0, 10).map((item) => {
+        const history = data.history;
+        setHistoryPagerState({
+            pageNo: data.pageNo || pageNo,
+            pageSize: data.pageSize || pageSize,
+            total: data.total != null ? data.total : null,
+            hasMore: !!data.hasMore,
+        });
+        if (pageNo === 1) list.innerHTML = '';
+        if (history.length === 0 && pageNo === 1) {
+            list.innerHTML = `<div class="empty-state">No bets yet on ${site || 'this site'}.</div>`;
+            _renderHistoryPager();
+            return;
+        }
+        const rows = history.map((item) => {
             const choice = String(item.choice || '').toUpperCase();
             const betText = choice === 'B' ? 'BIG' : (choice === 'S' ? 'SMALL' : choice);
             const betClass = choice === 'B' ? 'big' : (choice === 'S' ? 'small' : '');
@@ -2612,9 +2673,48 @@ async function loadBetHistory() {
                 </div>
             `;
         }).join('');
+        list.insertAdjacentHTML('beforeend', rows);
+        if (site) {
+            const tag = document.getElementById('historySiteTag');
+            if (tag) tag.textContent = `· ${site}`;
+        }
+        _renderHistoryPager();
     } catch (e) {
+        list.querySelectorAll('[data-loading]').forEach((n) => n.remove());
+        _histState.loading = false;
         list.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+        _renderHistoryPager();
     }
+}
+
+function _renderHistoryPager() {
+    const pager = document.getElementById('historyPager');
+    if (!pager) return;
+    const site = detectSiteFromCreds(getCreds());
+    const pageNo = _histState.pageNo;
+    const pageSize = _histState.pageSize;
+    const total = _histState.total;
+    const hasMore = _histState.hasMore;
+    const prevDisabled = pageNo <= 1;
+    const nextDisabled = !hasMore;
+    const totalLabel = total != null ? `${total} total` : '';
+    pager.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:8px 4px;font-size:12px;color:#888;">
+            <div>
+                <span id="historySiteTag">${site ? '· ' + site : ''}</span>
+                <span style="margin-left:6px;">Page ${pageNo}</span>
+                ${totalLabel ? `<span style="margin-left:6px;">(${totalLabel})</span>` : ''}
+            </div>
+            <div style="display:flex;gap:6px;">
+                <button class="tab-refresh" data-hist-first ${prevDisabled ? 'disabled' : ''} title="First">⏮</button>
+                <button class="tab-refresh" data-hist-prev ${prevDisabled ? 'disabled' : ''} title="Prev">‹</button>
+                <button class="tab-refresh" data-hist-next ${nextDisabled ? 'disabled' : ''} title="Next">›</button>
+            </div>
+        </div>
+    `;
+    pager.querySelector('[data-hist-first]')?.addEventListener('click', () => loadBetHistory({ pageNo: 1 }));
+    pager.querySelector('[data-hist-prev]')?.addEventListener('click', () => loadBetHistory({ pageNo: Math.max(1, pageNo - 1) }));
+    pager.querySelector('[data-hist-next]')?.addEventListener('click', () => loadBetHistory({ pageNo: pageNo + 1 }));
 }
 
 function updateBetIssue() {

@@ -12,7 +12,19 @@ const BASE_URLS = {
   '777BIGWIN': 'https://api.bigwinqaz.com/api/webapi/',
 };
 
-const ORIGIN = 'https://6win598.com';
+const SITE_ORIGINS = {
+  '6Lottery': 'https://6lotteryb.com',
+  '777BIGWIN': 'https://777bigwingame.bet',
+};
+
+function originFor(baseUrl) {
+  if (!baseUrl) return SITE_ORIGINS['6Lottery'];
+  if (baseUrl.includes('bigwinqaz')) return SITE_ORIGINS['777BIGWIN'];
+  if (baseUrl.includes('6lottery')) return SITE_ORIGINS['6Lottery'];
+  return SITE_ORIGINS['6Lottery'];
+}
+
+const DEFAULT_ORIGIN = SITE_ORIGINS['6Lottery'];
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0';
 
@@ -55,13 +67,14 @@ function makeRequest(url, options = {}) {
         : JSON.stringify(options.body)
       : null;
 
+    const origin = options.origin || DEFAULT_ORIGIN;
     const headers = {
       'Content-Type': 'application/json; charset=UTF-8',
       'User-Agent': UA,
       Connection: 'Keep-Alive',
-      'Ar-Origin': ORIGIN,
-      Origin: ORIGIN,
-      Referer: `${ORIGIN}/`,
+      'Ar-Origin': origin,
+      Origin: origin,
+      Referer: `${origin}/`,
       ...(options.headers || {}),
     };
     if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr);
@@ -101,16 +114,18 @@ function makeRequest(url, options = {}) {
 function createSession(baseUrl, token, tokenHeader) {
   const root = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   const auth = `${tokenHeader || 'Bearer '}${token}`;
+  const origin = originFor(baseUrl);
   return {
     post: async (endpoint, body) => {
       return makeRequest(root + endpoint, {
         method: 'POST',
+        origin,
         headers: {
           Authorization: auth,
           'Content-Type': 'application/json; charset=UTF-8',
-          'Ar-Origin': ORIGIN,
-          Origin: ORIGIN,
-          Referer: `${ORIGIN}/`,
+          'Ar-Origin': origin,
+          Origin: origin,
+          Referer: `${origin}/`,
           'User-Agent': UA,
         },
         body,
@@ -291,10 +306,10 @@ async function getTRXGameResults(session) {
   }
 }
 
-async function getRecentBets(session) {
+async function getRecentBets(session, pageNo = 1, pageSize = 20) {
   const body = {
-    pageNo: 1,
-    pageSize: 10,
+    pageNo,
+    pageSize,
     language: 7,
     random: '71ebd56cff7d4679971c482807c33f6f',
   };
@@ -305,12 +320,55 @@ async function getRecentBets(session) {
     const response = await session.post('GetBetRecord', body);
     const data = response.data;
     if (data && data.code === 0 && data.data && data.data.list) {
-      return data.data.list;
+      return {
+        list: data.data.list,
+        total: data.data.totalCount ?? data.data.total ?? null,
+        pageNo,
+        pageSize,
+      };
     }
-    return [];
+    return { list: [], total: 0, pageNo, pageSize };
   } catch (e) {
     log('ERROR', `GetBetRecord error: ${e.message}`);
-    return [];
+    return { list: [], total: 0, pageNo, pageSize };
+  }
+}
+
+async function getMyEmerdList(session, opts = {}) {
+  const {
+    pageNo = 1,
+    pageSize = 20,
+    typeId = 13,
+    language = 7,
+    random = crypto.randomBytes(16).toString('hex'),
+  } = opts;
+  const body = {
+    pageSize,
+    pageNo,
+    typeId,
+    language,
+    random,
+  };
+  body.signature = generateSignature(body).toUpperCase();
+  body.timestamp = Math.floor(Date.now() / 1000);
+
+  try {
+    const response = await session.post('GetTRXMyEmerdList', body);
+    const data = response.data;
+    if (data && (data.code === 0 || data.code === '0') && data.data) {
+      const list = data.data.list || data.data.records || data.data || [];
+      const total = data.data.totalCount ?? data.data.total ?? data.data.totalPages * pageSize ?? null;
+      return {
+        list: Array.isArray(list) ? list : [],
+        total,
+        pageNo,
+        pageSize,
+      };
+    }
+    return { list: [], total: 0, pageNo, pageSize, error: data?.msg || 'empty' };
+  } catch (e) {
+    log('ERROR', `GetTRXMyEmerdList error: ${e.message}`);
+    return { list: [], total: 0, pageNo, pageSize, error: e.message };
   }
 }
 
@@ -543,9 +601,27 @@ module.exports = async function handler(req, res) {
         sendJson(res, 401, { success: false, error: 'Not authenticated' });
         return;
       }
-      const list = await getRecentBets(session);
-      const history = list.slice(0, 10).map(mapBetRecord);
-      sendJson(res, 200, { success: true, history });
+      const pageNo = Math.max(parseInt(body.pageNo || '1', 10) || 1, 1);
+      const pageSize = Math.min(
+        Math.max(parseInt(body.pageSize || '20', 10) || 20, 1),
+        100
+      );
+      const useEmerd = body.source !== 'legacy';
+      const result = useEmerd
+        ? await getMyEmerdList(session, { pageNo, pageSize })
+        : await getRecentBets(session, pageNo, pageSize);
+      const history = (result.list || []).map(mapBetRecord);
+      sendJson(res, 200, {
+        success: true,
+        history,
+        pageNo: result.pageNo,
+        pageSize: result.pageSize,
+        total: result.total,
+        hasMore:
+          result.total != null
+            ? pageNo * pageSize < result.total
+            : (result.list || []).length === pageSize,
+      });
       return;
     }
 

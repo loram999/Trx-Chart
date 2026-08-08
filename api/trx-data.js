@@ -54,19 +54,28 @@ function fetchJson(url) {
   });
 }
 
-async function fetchAllDraws() {
-  // Try primary first, then fallbacks
+async function fetchAllDraws({ pageNo = 1, pageSize = 2000 } = {}) {
+  // Try primary first, then fallbacks. Walk pages via pageNo/pageSize until
+  // upstream returns < pageSize or we hit the global cap.
   const urls = [PRIMARY_URL, ...FALLBACK_URLS];
   for (const url of urls) {
     try {
-      const json = await fetchJson(url + '?ts=' + Date.now());
+      const params = new URLSearchParams({
+        pageNo: String(pageNo),
+        pageSize: String(pageSize),
+        ts: String(Date.now()),
+      });
+      const json = await fetchJson(url + '?' + params.toString());
       const list = json?.list || json?.data?.list || [];
-      if (list.length > 0) return list;
+      const total = json?.data?.totalCount ?? json?.totalCount ?? json?.total ?? null;
+      if (list.length > 0) {
+        return { list, total, pageNo, pageSize, hasMore: total != null ? pageNo * pageSize < total : list.length === pageSize };
+      }
     } catch (e) {
       console.warn('[trx-data] fetch failed:', url, e.message);
     }
   }
-  return [];
+  return { list: [], total: 0, pageNo, pageSize, hasMore: false };
 }
 
 function normalize(item) {
@@ -92,17 +101,31 @@ module.exports = async function handler(req, res) {
     const url = new URL(req.url || '/', 'http://localhost');
     const limit = Math.min(
       parseInt(url.searchParams.get('limit') || '10000', 10) || 10000,
+      20000
+    );
+    const pageNo = Math.max(parseInt(url.searchParams.get('pageNo') || '1', 10) || 1, 1);
+    const pageSize = Math.min(
+      Math.max(parseInt(url.searchParams.get('pageSize') || String(limit), 10) || limit, 100),
       10000
     );
 
-    const raw = await fetchAllDraws();
-    const list = raw.slice(0, limit).map(normalize);
+    const result = await fetchAllDraws({ pageNo, pageSize });
+    const list = result.list.slice(0, limit).map(normalize);
 
     // Cache 5s on Vercel Edge to reduce upstream hits
     res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(list));
+    res.end(
+      JSON.stringify({
+        list,
+        pageNo,
+        pageSize,
+        returned: list.length,
+        total: result.total,
+        hasMore: result.hasMore,
+      })
+    );
   } catch (e) {
     console.error('[trx-data]', e.message);
     res.statusCode = 500;
