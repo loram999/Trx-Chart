@@ -12,36 +12,51 @@ const { URL } = require('url');
 const UA = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
 const TRONSCAN_BLOCK = 'https://apilist.tronscanapi.com/api/block';
 
-function fetchJson(url, timeoutMs = 15000) {
+function fetchJson(url, timeoutMs = 15000, retries = 2) {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const lib = parsed.protocol === 'https:' ? https : http;
-    const agent = parsed.protocol === 'https:'
-      ? new https.Agent({ rejectUnauthorized: false, keepAlive: true })
-      : undefined;
-    const req = lib.request(
-      {
-        protocol: parsed.protocol,
-        hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-        path: parsed.pathname + parsed.search,
-        method: 'GET',
-        headers: { Accept: 'application/json', 'User-Agent': UA, Connection: 'Keep-Alive' },
-        agent,
-        timeout: timeoutMs,
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); }
-          catch (e) { reject(new Error('Parse error: ' + e.message)); }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-    req.end();
+    const attempt = (n) => {
+      const parsed = new URL(url);
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const agent = parsed.protocol === 'https:'
+        ? new https.Agent({ rejectUnauthorized: false, keepAlive: true })
+        : undefined;
+      const req = lib.request(
+        {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname,
+          port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+          path: parsed.pathname + parsed.search,
+          method: 'GET',
+          headers: { Accept: 'application/json', 'User-Agent': UA, Connection: 'Keep-Alive' },
+          agent,
+          timeout: timeoutMs,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            // Tronscan rate-limits aggressively (429). Back off and retry.
+            if (res.statusCode === 429 && n < retries) {
+              setTimeout(() => attempt(n + 1), 800 * (n + 1));
+              return;
+            }
+            try { resolve(JSON.parse(data)); }
+            catch (e) { reject(new Error(`status=${res.statusCode}: parse ${e.message}`)); }
+          });
+        }
+      );
+      req.on('error', (err) => {
+        if (n < retries) setTimeout(() => attempt(n + 1), 500 * (n + 1));
+        else reject(err);
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        if (n < retries) setTimeout(() => attempt(n + 1), 500 * (n + 1));
+        else reject(new Error('timeout'));
+      });
+      req.end();
+    };
+    attempt(0);
   });
 }
 
@@ -148,7 +163,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
       if (rows.length < PAGE_SIZE || oldestSeenBlock <= 1) exhausted = true;
       offset += rows.length;
       pagesTried++;
-      await new Promise((r) => setTimeout(r, 30));
+      await new Promise((r) => setTimeout(r, 250));
     } catch (e) {
       console.warn('[trx-data] chunk failed:', e.message);
       break;
@@ -188,7 +203,7 @@ module.exports = async function handler(req, res) {
     const result = await fetchAllDraws({ limit });
     const list = result.list;
 
-    res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
+    res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=60');
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
     res.end(
