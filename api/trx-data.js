@@ -1,20 +1,18 @@
 /**
  * TRX Chart Data — public draw history for the candlestick chart.
- * No auth required. Returns up to 10k most recent TRX 1M draws.
+ * No auth required. Uses TRX blockchain blocks from apilist.tronscanapi.com
+ * (the same data source the reference chart at warwarzc-sudo/trx-chart uses),
+ * filtered to blocks produced at UTC second :54 — those are the 1-minute
+ * TRX lottery draws. Walks block ranges backward until callerLimit is met.
  */
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
 const UA = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
+const TRONSCAN_BLOCK = 'https://apilist.tronscanapi.com/api/block';
 
-const PRIMARY_URL = 'https://draw.ar-lottery01.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json';
-const FALLBACK_URLS = [
-  'https://draw.ar-lottery03.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json',
-  'https://draw.ar-lottery02.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json',
-];
-
-function fetchJson(url) {
+function fetchJson(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
@@ -28,23 +26,16 @@ function fetchJson(url) {
         port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
         path: parsed.pathname + parsed.search,
         method: 'GET',
-        headers: {
-          Accept: 'application/json, text/plain, */*',
-          'User-Agent': UA,
-          Connection: 'Keep-Alive',
-        },
+        headers: { Accept: 'application/json', 'User-Agent': UA, Connection: 'Keep-Alive' },
         agent,
-        timeout: 15000,
+        timeout: timeoutMs,
       },
       (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(new Error('Parse error: ' + e.message));
-          }
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('Parse error: ' + e.message)); }
         });
       }
     );
@@ -54,72 +45,124 @@ function fetchJson(url) {
   });
 }
 
-async function fetchAllDraws({ pageNo: _pageNo = 1, pageSize: _pageSize = 2000 } = {}) {
-  // The upstream GetHistoryIssuePage.json caps each response (~10 rows) regardless
-  // of the requested pageSize. Walk pages 1..N until we either hit callerLimit or
-  // the upstream returns an empty page. Dedup by issueNumber.
-  const callerLimit = Math.min(
-    parseInt(arguments[0] && arguments[0].limit, 10) || 0,
-    20000
-  );
-  // Upstream's real per-page cap (it ignores pageSize > ~10). Use the actual cap
-  // so the "less than pageSize" heuristic still works as an end-of-data signal.
-  const upstreamPageSize = 10;
-  const maxPages = 200; // 10 rows × 200 = up to 2000 rows
+// ── Block → lottery record ────────────────────────────────────────────
+// Mirror the reference repo's worker.js exactly so the digit derivation
+// is identical.
 
-  const urls = [PRIMARY_URL, ...FALLBACK_URLS];
-  for (const url of urls) {
-    const collected = [];
-    const seen = new Set();
-    let upstreamTotal = null;
-
-    for (let page = 1; page <= maxPages; page++) {
-      try {
-        const params = new URLSearchParams({
-          pageNo: String(page),
-          pageSize: String(upstreamPageSize),
-          ts: String(Date.now()),
-        });
-        const json = await fetchJson(url + '?' + params.toString());
-        const list = json?.list || json?.data?.list || [];
-        upstreamTotal = json?.data?.totalCount ?? json?.totalCount ?? upstreamTotal;
-
-        if (list.length === 0) break;
-        for (const item of list) {
-          const key = String(item.issueNumber || item.issuenumber || item.period || '');
-          if (!key) continue;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          collected.push(item);
-          if (callerLimit && collected.length >= callerLimit) break;
-        }
-        if (callerLimit && collected.length >= callerLimit) break;
-        if (list.length < upstreamPageSize) break;
-        await new Promise((r) => setTimeout(r, 60));
-      } catch (e) {
-        console.warn('[trx-data] fetch failed:', url, e.message);
-        break;
-      }
-    }
-
-    if (collected.length > 0) {
-      return {
-        list: collected,
-        total: upstreamTotal ?? collected.length,
-        pageNo: 1,
-        pageSize: upstreamPageSize,
-        hasMore: upstreamTotal != null ? collected.length < upstreamTotal : false,
-      };
-    }
+function resultFromHash(hash) {
+  if (!hash) return 0;
+  const part = hash.length > 16 ? hash.slice(16) : hash;
+  for (let i = part.length - 1; i >= 0; i--) {
+    const ch = part[i];
+    if (ch >= '0' && ch <= '9') return parseInt(ch, 10);
   }
-  return { list: [], total: 0, pageNo: 1, pageSize: upstreamPageSize, hasMore: false };
+  for (let i = hash.length - 1; i >= 0; i--) {
+    const ch = hash[i];
+    if (ch >= '0' && ch <= '9') return parseInt(ch, 10);
+  }
+  return 0;
 }
 
-function normalize(item) {
+function toPeriod(ts) {
+  const d = new Date(ts);
+  return (
+    String(d.getUTCFullYear()) +
+    String(d.getUTCMonth() + 1).padStart(2, '0') +
+    String(d.getUTCDate()).padStart(2, '0') +
+    String(d.getUTCHours()).padStart(2, '0') +
+    String(d.getUTCMinutes()).padStart(2, '0')
+  );
+}
+
+function toBlockTime(ts) {
+  const d = new Date(ts);
+  return (
+    String(d.getUTCHours()).padStart(2, '0') + ':' +
+    String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+    String(d.getUTCSeconds()).padStart(2, '0')
+  );
+}
+
+function lotteryRecordFromBlock(row) {
+  if (!row || !row.timestamp || !row.hash) return null;
+  const sec = new Date(row.timestamp).getUTCSeconds();
+  if (sec !== 54) return null;
   return {
-    issueNumber: String(item.issueNumber || item.issuenumber || item.period || ''),
-    number: parseInt(item.number ?? item.openNumber ?? item.result ?? 0, 10) || 0,
-    blockTime: item.blockTime || item.block_time || item.openTime || null,
+    issueNumber: toPeriod(row.timestamp),
+    number: resultFromHash(row.hash),
+    blockTime: toBlockTime(row.timestamp),
+  };
+}
+
+async function fetchCurrentBlock() {
+  const data = await fetchJson(`${TRONSCAN_BLOCK}?sort=-number&start=0&limit=1&_ts=${Date.now()}`);
+  const rows = Array.isArray(data.data) ? data.data : [];
+  return rows.length ? (rows[0].number || 0) : 0;
+}
+
+// Walk block ranges backward, collecting lottery draws. The chart needs
+// historical data, so we start at the latest block and page back in
+// 600-block chunks (~5 min of TRX) until we hit callerLimit.
+async function fetchAllDraws({ limit = 1000 } = {}) {
+  const callerLimit = Math.min(parseInt(limit, 10) || 0, 5000);
+  if (callerLimit <= 0) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
+
+  const currentBlock = await fetchCurrentBlock();
+  if (!currentBlock) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
+
+  const collected = [];
+  const seen = new Set();
+  // 600 blocks ≈ 5 min of TRX — enough lottery draws (60) per chunk with margin.
+  const CHUNK = 600;
+  const MAX_CHUNKS = Math.ceil(callerLimit / 5) + 4; // ~5 draws per 600-block chunk
+  // TRX produces a block every ~3s → ~20 blocks/min. A draw occurs once per
+  // minute (at second :54), so ~1 draw per 60 TRX blocks.
+  const BLOCKS_PER_DRAW = 60;
+  const blocksNeeded = callerLimit * BLOCKS_PER_DRAW;
+
+  let toBlock = currentBlock;
+  let chunksTried = 0;
+  let oldestSeenBlock = currentBlock;
+
+  while (collected.length < callerLimit && chunksTried < MAX_CHUNKS) {
+    const fromBlock = Math.max(1, toBlock - CHUNK);
+    const offset = Math.max(0, currentBlock - toBlock);
+    const want = Math.min(toBlock - fromBlock + 1, 1000);
+
+    try {
+      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${want}&_ts=${Date.now()}`;
+      const data = await fetchJson(upstream);
+      const rows = Array.isArray(data.data) ? data.data : [];
+      oldestSeenBlock = rows.length ? (rows[rows.length - 1].number || oldestSeenBlock) : oldestSeenBlock;
+
+      for (const row of rows) {
+        const rec = lotteryRecordFromBlock(row);
+        if (!rec) continue;
+        if (seen.has(rec.issueNumber)) continue;
+        seen.add(rec.issueNumber);
+        collected.push(rec);
+        if (collected.length >= callerLimit) break;
+      }
+
+      if (rows.length < want) break; // ran out of upstream history
+      if (oldestSeenBlock <= 1) break;
+      toBlock = fromBlock;
+      chunksTried++;
+    } catch (e) {
+      console.warn('[trx-data] chunk failed:', e.message);
+      break;
+    }
+  }
+
+  // Sort ascending by issueNumber for chart consumption.
+  collected.sort((a, b) => (BigInt(a.issueNumber) < BigInt(b.issueNumber) ? -1 : 1));
+
+  return {
+    list: collected,
+    total: collected.length,
+    pageNo: 1,
+    pageSize: collected.length,
+    hasMore: oldestSeenBlock > 1 && collected.length < callerLimit,
   };
 }
 
@@ -137,27 +180,21 @@ module.exports = async function handler(req, res) {
   try {
     const url = new URL(req.url || '/', 'http://localhost');
     const limit = Math.min(
-      parseInt(url.searchParams.get('limit') || '10000', 10) || 10000,
-      20000
-    );
-    const pageNo = Math.max(parseInt(url.searchParams.get('pageNo') || '1', 10) || 1, 1);
-    const pageSize = Math.min(
-      Math.max(parseInt(url.searchParams.get('pageSize') || String(limit), 10) || limit, 100),
-      10000
+      parseInt(url.searchParams.get('limit') || '1000', 10) || 1000,
+      5000
     );
 
-    const result = await fetchAllDraws({ pageNo, pageSize, limit });
-    const list = result.list.slice(0, limit).map(normalize);
+    const result = await fetchAllDraws({ limit });
+    const list = result.list;
 
-    // Cache 5s on Vercel Edge to reduce upstream hits
     res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=5');
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
         list,
-        pageNo,
-        pageSize,
+        pageNo: 1,
+        pageSize: list.length,
         returned: list.length,
         total: result.total,
         hasMore: result.hasMore,
