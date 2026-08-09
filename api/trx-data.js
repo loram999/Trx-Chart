@@ -204,7 +204,14 @@ module.exports = async function handler(req, res) {
     const result = await fetchAllDraws({ limit });
     const list = result.list;
 
-    res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=60');
+    // Only cache successful responses with at least some data — empty/0 results
+    // (rate-limited upstream) must not be cached, or the chart stays empty
+    // for the full s-maxage window.
+    if (list.length > 0) {
+      res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=60');
+    } else {
+      res.setHeader('Cache-Control', 'no-store');
+    }
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
     res.end(
