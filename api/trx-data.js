@@ -12,51 +12,36 @@ const { URL } = require('url');
 const UA = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
 const TRONSCAN_BLOCK = 'https://apilist.tronscanapi.com/api/block';
 
-function fetchJson(url, timeoutMs = 15000, retries = 2) {
+function fetchJson(url, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
-    const attempt = (n) => {
-      const parsed = new URL(url);
-      const lib = parsed.protocol === 'https:' ? https : http;
-      const agent = parsed.protocol === 'https:'
-        ? new https.Agent({ rejectUnauthorized: false, keepAlive: true })
-        : undefined;
-      const req = lib.request(
-        {
-          protocol: parsed.protocol,
-          hostname: parsed.hostname,
-          port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-          path: parsed.pathname + parsed.search,
-          method: 'GET',
-          headers: { Accept: 'application/json', 'User-Agent': UA, Connection: 'Keep-Alive' },
-          agent,
-          timeout: timeoutMs,
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            // Tronscan rate-limits aggressively (429). Back off and retry.
-            if (res.statusCode === 429 && n < retries) {
-              setTimeout(() => attempt(n + 1), 800 * (n + 1));
-              return;
-            }
-            try { resolve(JSON.parse(data)); }
-            catch (e) { reject(new Error(`status=${res.statusCode}: parse ${e.message}`)); }
-          });
-        }
-      );
-      req.on('error', (err) => {
-        if (n < retries) setTimeout(() => attempt(n + 1), 500 * (n + 1));
-        else reject(err);
-      });
-      req.on('timeout', () => {
-        req.destroy();
-        if (n < retries) setTimeout(() => attempt(n + 1), 500 * (n + 1));
-        else reject(new Error('timeout'));
-      });
-      req.end();
-    };
-    attempt(0);
+    const parsed = new URL(url);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const agent = parsed.protocol === 'https:'
+      ? new https.Agent({ rejectUnauthorized: false, keepAlive: true })
+      : undefined;
+    const req = lib.request(
+      {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: { Accept: 'application/json', 'User-Agent': UA, Connection: 'Keep-Alive' },
+        agent,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error(`status=${res.statusCode}: parse ${e.message}`)); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.end();
   });
 }
 
@@ -125,43 +110,27 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
   const currentBlock = await fetchCurrentBlock();
   if (!currentBlock) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
 
-  // Tronscan caps each request at 50 rows and rate-limits (429) after a
-  // handful of calls. Walk up to MAX_PAGES pages with backoff; return
-  // whatever we have if we hit rate limits mid-walk so the chart can
-  // render with partial data instead of staying empty.
-  const PAGE_SIZE = 50;
-  const MAX_PAGES = 4;
+  // Single fast page of recent TRX blocks (50 rows ≈ 2.5 minutes).
+  // Tronscan caps each request at 50 rows and rate-limits aggressively
+  // from cloud IPs; multi-page walkers get throttled. The chart's poll
+  // cycle will accumulate more draws over time, served from edge cache.
   const collected = [];
   const seen = new Set();
-  let offset = 0;
+  let currentBlock = 0;
 
-  for (let p = 0; p < MAX_PAGES; p++) {
-    try {
-      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
-      const data = await fetchJson(upstream);
-      const rows = Array.isArray(data.data) ? data.data : [];
-      if (rows.length === 0) break;
-
-      let added = 0;
-      for (const row of rows) {
-        const rec = lotteryRecordFromBlock(row);
-        if (!rec) continue;
-        if (seen.has(rec.issueNumber)) continue;
-        seen.add(rec.issueNumber);
-        collected.push(rec);
-        added++;
-      }
-
-      offset += rows.length;
-      // If we got nothing new from this page, upstream is duplicating — stop.
-      if (added === 0) break;
-      if (rows.length < PAGE_SIZE) break;
-      // Small delay between pages to be polite to tronscan.
-      await new Promise((r) => setTimeout(r, 150));
-    } catch (e) {
-      console.warn('[trx-data] page', p + 1, 'failed:', e.message);
-      break;
+  try {
+    const data = await fetchJson(`${TRONSCAN_BLOCK}?sort=-number&start=0&limit=50&_ts=${Date.now()}`);
+    const rows = Array.isArray(data.data) ? data.data : [];
+    currentBlock = rows.length ? (rows[0].number || 0) : 0;
+    for (const row of rows) {
+      const rec = lotteryRecordFromBlock(row);
+      if (!rec) continue;
+      if (seen.has(rec.issueNumber)) continue;
+      seen.add(rec.issueNumber);
+      collected.push(rec);
     }
+  } catch (e) {
+    console.warn('[trx-data] fetch failed:', e.message);
   }
 
   // Sort ascending by issueNumber for chart consumption.
