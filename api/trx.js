@@ -306,6 +306,87 @@ async function getTRXGameResults(session) {
   }
 }
 
+async function getTRXNoaverageEmerdList(session, opts = {}) {
+  // Bulk TRX public draw fetch — ported from risk.py get_trx_emerd_list_request.
+  // Endpoint: GetTRXNoaverageEmerdList with typeId=13. Supports large pageSize
+  // (the upstream typically returns up to ~500 rows per page) so callers can
+  // pull thousands of historical draws with only a handful of requests.
+  const {
+    pageNo = 1,
+    pageSize = 500,
+    typeId = 13,
+    language = 7,
+    random = 'f15bdcc4e6a04f8f828c4627baea8434',
+  } = opts;
+  const body = {
+    pageSize,
+    pageNo,
+    typeId,
+    language,
+    random,
+  };
+  body.signature = generateSignature(body).toUpperCase();
+  body.timestamp = Math.floor(Date.now() / 1000);
+
+  try {
+    const response = await session.post('GetTRXNoaverageEmerdList', body);
+    const data = response.data;
+    if (data && (data.code === 0 || data.code === '0')) {
+      // Response shape mirrors risk.py: data.data.gameslist OR data.data.list
+      const inner = data.data || {};
+      const list = inner.gameslist || inner.list || inner.records || (Array.isArray(inner) ? inner : []);
+      const total =
+        inner.totalCount ??
+        inner.total ??
+        (typeof inner.totalPages === 'number' ? inner.totalPages * pageSize : null);
+      return {
+        list: Array.isArray(list) ? list : [],
+        total,
+        pageNo,
+        pageSize,
+      };
+    }
+    return { list: [], total: 0, pageNo, pageSize, error: data?.msg || 'empty' };
+  } catch (e) {
+    log('ERROR', `GetTRXNoaverageEmerdList error: ${e.message}`);
+    return { list: [], total: 0, pageNo, pageSize, error: e.message };
+  }
+}
+
+async function fetchTRXDrawsBulk(session, { limit = 10000, pageSize = 500, maxPages = 30 } = {}) {
+  // Page-walk using the risk.py bulk fetcher. Dedupes by issueNumber.
+  const seen = new Set();
+  const collected = [];
+  let upstreamTotal = null;
+  const cappedLimit = Math.min(limit, 20000);
+
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await getTRXNoaverageEmerdList(session, { pageNo: page, pageSize });
+    const list = res.list || [];
+    if (upstreamTotal == null && res.total != null) upstreamTotal = res.total;
+    if (list.length === 0) break;
+
+    for (const item of list) {
+      const key = String(item.issueNumber || item.issuenumber || item.period || '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      collected.push(item);
+      if (collected.length >= cappedLimit) break;
+    }
+    if (collected.length >= cappedLimit) break;
+    if (list.length < pageSize) break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+
+  return {
+    list: collected,
+    total: upstreamTotal ?? collected.length,
+    pageNo: 1,
+    pageSize,
+    hasMore: upstreamTotal != null ? collected.length < upstreamTotal : collected.length >= cappedLimit,
+  };
+}
+
 async function getRecentBets(session, pageNo = 1, pageSize = 20) {
   const body = {
     pageNo,
@@ -591,6 +672,61 @@ module.exports = async function handler(req, res) {
       const list = (raw && raw.data && raw.data.list) || raw?.list || [];
       const mapped = list.slice(0, 10).map(mapGameResult);
       sendJson(res, 200, { success: true, results: mapped });
+      return;
+    }
+
+    // ── getTRXDrawHistory ──
+    // Bulk authenticated TRX draw history — uses the risk.py GetTRXNoaverageEmerdList
+    // endpoint with large pageSize, page-walked up to maxPages. Falls back to the
+    // public GetHistoryIssuePage.json (anonymous) when no session is supplied.
+    if (action === 'getTRXDrawHistory') {
+      const creds = {
+        token: body.token || q.token,
+        tokenHeader: body.tokenHeader || q.tokenHeader,
+        baseUrl: body.baseUrl || q.baseUrl,
+      };
+      const limit = Math.min(parseInt(body.limit || q.limit || '10000', 10) || 10000, 20000);
+      const pageSize = Math.min(
+        Math.max(parseInt(body.pageSize || q.pageSize || '500', 10) || 500, 100),
+        1000
+      );
+      const session = sessionFromCreds(creds);
+
+      if (session) {
+        const bulk = await fetchTRXDrawsBulk(session, { limit, pageSize, maxPages: 30 });
+        const list = bulk.list.slice(0, limit).map(mapGameResult);
+        sendJson(res, 200, {
+          success: true,
+          list,
+          pageNo: 1,
+          pageSize,
+          returned: list.length,
+          total: bulk.total,
+          hasMore: bulk.hasMore,
+          source: 'GetTRXNoaverageEmerdList',
+        });
+        return;
+      }
+
+      // Anonymous fallback — public draw URL.
+      try {
+        const fallbackUrl =
+          'https://draw.ar-lottery01.com/TrxWinGo/TrxWinGo_1M/GetHistoryIssuePage.json?ts=' + Date.now();
+        const r = await makeRequest(fallbackUrl, { method: 'GET', timeout: 15000 });
+        const list = ((r.data && r.data.list) || []).slice(0, limit).map(mapGameResult);
+        sendJson(res, 200, {
+          success: true,
+          list,
+          pageNo: 1,
+          pageSize: list.length,
+          returned: list.length,
+          total: r.data?.data?.totalCount ?? list.length,
+          hasMore: list.length >= limit,
+          source: 'GetHistoryIssuePage.json',
+        });
+      } catch (e) {
+        sendJson(res, 200, { success: false, error: e.message });
+      }
       return;
     }
 

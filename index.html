@@ -1201,11 +1201,31 @@ function extractDrawList(payload) {
     return [];
 }
 
+function buildDrawUrl(limit) {
+    // Prefer the authenticated bulk endpoint when credentials are present
+    // (it walks pages via GetTRXNoaverageEmerdList — ported from Gemini-Cli's
+    // risk.py get_trx_emerd_list_request — and returns many more rows per page
+    // than the anonymous public URL). Falls back to /api/trx-data otherwise.
+    const creds = (typeof getCreds === 'function') ? getCreds() : null;
+    if (creds && creds.token && creds.baseUrl) {
+        const params = new URLSearchParams({
+            action: 'getTRXDrawHistory',
+            token: creds.token,
+            tokenHeader: creds.tokenHeader || '',
+            baseUrl: creds.baseUrl,
+            limit: String(limit),
+            pageSize: '500',
+        });
+        return '/api/trx?' + params.toString();
+    }
+    return '/api/trx-data?limit=' + limit + '&t=' + Date.now();
+}
+
 async function fetchData() {
     try {
         if (!_initialLoadDone) {
             // ── Phase 1: quick load (1200 candles) — chart shows fast ──────
-            const quickRes = await fetch('/api/trx-data?limit=1200&t=' + Date.now());
+            const quickRes = await fetch(buildDrawUrl(1200));
             if (quickRes.ok) {
                 const quickList = extractDrawList(await quickRes.json());
                 if (quickList.length > 0) {
@@ -1219,7 +1239,7 @@ async function fetchData() {
             _initialLoadDone = true;
             setTimeout(async () => {
                 try {
-                    const fullRes = await fetch('/api/trx-data?limit=10000&t=' + Date.now());
+                    const fullRes = await fetch(buildDrawUrl(10000));
                     if (!fullRes.ok) return;
                     const fullList = extractDrawList(await fullRes.json());
                     if (fullList.length > 0) {
@@ -1232,7 +1252,7 @@ async function fetchData() {
             }, 500);
         } else {
             // ── Regular interval fetch: full data ────────────────────────
-            const res  = await fetch('/api/trx-data?limit=10000&t=' + Date.now());
+            const res  = await fetch(buildDrawUrl(10000));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const list = extractDrawList(await res.json());
             if (list.length === 0) return;
