@@ -55,15 +55,17 @@ function fetchJson(url) {
 }
 
 async function fetchAllDraws({ pageNo: _pageNo = 1, pageSize: _pageSize = 2000 } = {}) {
-  // The upstream GetHistoryIssuePage.json caps each response (typically 10–200).
-  // Walk pages 1..N to accumulate many rows, then dedupe by issueNumber.
-  // Honor ?limit on the caller side so we stop early once we have enough.
+  // The upstream GetHistoryIssuePage.json caps each response (~10 rows) regardless
+  // of the requested pageSize. Walk pages 1..N until we either hit callerLimit or
+  // the upstream returns an empty page. Dedup by issueNumber.
   const callerLimit = Math.min(
     parseInt(arguments[0] && arguments[0].limit, 10) || 0,
     20000
   );
-  const upstreamPageSize = 200;
-  const maxPages = 50;
+  // Upstream's real per-page cap (it ignores pageSize > ~10). Use the actual cap
+  // so the "less than pageSize" heuristic still works as an end-of-data signal.
+  const upstreamPageSize = 10;
+  const maxPages = 200; // 10 rows × 200 = up to 2000 rows
 
   const urls = [PRIMARY_URL, ...FALLBACK_URLS];
   for (const url of urls) {
@@ -93,7 +95,7 @@ async function fetchAllDraws({ pageNo: _pageNo = 1, pageSize: _pageSize = 2000 }
         }
         if (callerLimit && collected.length >= callerLimit) break;
         if (list.length < upstreamPageSize) break;
-        await new Promise((r) => setTimeout(r, 80));
+        await new Promise((r) => setTimeout(r, 60));
       } catch (e) {
         console.warn('[trx-data] fetch failed:', url, e.message);
         break;

@@ -154,12 +154,23 @@ module.exports = async function handler(req, res) {
     }
 
     if (mode === 'blocks') {
+      // from/to are block NUMBERS; tronscan's `start` is a 0-based OFFSET from
+      // the latest block, and `limit` is the page size. Translate:
+      //   start  = currentBlock - toBlock     (offset back to the newer edge)
+      //   limit  = toBlock - fromBlock + 1    (number of blocks in range)
       const lo = Math.max(0, Math.min(fromBlock, toBlock));
       const hi = Math.max(lo, Math.max(fromBlock, toBlock));
-      const span = Math.max(0, hi - lo);
-      const pageSize = Math.min(span + 1, 1000);
+      const want = Math.min(hi - lo + 1, 1000);
+
+      // Fetch current block height to compute the offset.
+      const head = await fetchJson(`${TRONSCAN_BLOCK}?sort=-number&start=0&limit=1&_ts=${Date.now()}`);
+      const headRows = Array.isArray(head.data) ? head.data : [];
+      const currentBlock = headRows.length ? (headRows[0].number || 0) : 0;
+      const offset = Math.max(0, currentBlock - hi);
+      const limit = Math.max(1, Math.min(want, 1000));
+
       const upstream =
-        `${TRONSCAN_BLOCK}?sort=-number&start=${lo}&limit=${pageSize}&_ts=${Date.now()}`;
+        `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${limit}&_ts=${Date.now()}`;
       const data = await fetchJson(upstream);
       const rows = Array.isArray(data.data) ? data.data : [];
       const records = rows
@@ -171,6 +182,9 @@ module.exports = async function handler(req, res) {
         oldestTs: rows.length ? rows[rows.length - 1].timestamp : null,
         newestTs: rows.length ? rows[0].timestamp : null,
         rowCount: rows.length,
+        currentBlock,
+        from: lo,
+        to: hi,
       });
       return;
     }
