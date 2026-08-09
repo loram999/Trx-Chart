@@ -4,6 +4,14 @@
     "api/trx.js": {
       "memory": 1024,
       "maxDuration": 30
+    },
+    "api/trx-data.js": {
+      "memory": 1024,
+      "maxDuration": 30
+    },
+    "api/trx-blockchain.js": {
+      "memory": 1024,
+      "maxDuration": 30
     }
   },
   "headers": [

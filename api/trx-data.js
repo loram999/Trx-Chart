@@ -128,20 +128,21 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
   const collected = [];
   const seen = new Set();
   // Tronscan caps each request at 50 rows regardless of the requested limit.
-  // TRX produces a block every ~3s, so 50 blocks ≈ 2.5 minutes. To collect
-  // `callerLimit` lottery draws (one per minute at second :54), we walk back
-  // ~60 blocks per expected draw × callerLimit + a buffer.
+  // TRX produces a block every ~3s, so 50 blocks ≈ 2.5 minutes. We bound the
+  // walker by a maxPages cap (≈ 30 pages = 1500 blocks ≈ 25 minutes, well
+  // under Vercel's default 10s function timeout) so the chart gets *some*
+  // data quickly. The chart's poll cycle fills in the rest incrementally.
   const PAGE_SIZE = 50;
   const BLOCKS_PER_DRAW = 60;
-  const blocksNeeded = Math.min(callerLimit * BLOCKS_PER_DRAW + 200, 50000);
-  const maxPages = Math.ceil(blocksNeeded / PAGE_SIZE) + 2;
+  const maxPages = 30;
+  const effectiveLimit = Math.min(callerLimit, maxPages * (PAGE_SIZE / BLOCKS_PER_DRAW));
 
   let offset = 0;
   let pagesTried = 0;
   let oldestSeenBlock = currentBlock;
   let exhausted = false;
 
-  while (collected.length < callerLimit && pagesTried < maxPages && !exhausted) {
+  while (collected.length < effectiveLimit && pagesTried < maxPages && !exhausted) {
     try {
       const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
       const data = await fetchJson(upstream);
@@ -155,7 +156,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
         if (seen.has(rec.issueNumber)) continue;
         seen.add(rec.issueNumber);
         collected.push(rec);
-        if (collected.length >= callerLimit) break;
+        if (collected.length >= effectiveLimit) break;
       }
 
       // If the upstream returned less than PAGE_SIZE we've hit the end.
@@ -163,7 +164,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
       if (rows.length < PAGE_SIZE || oldestSeenBlock <= 1) exhausted = true;
       offset += rows.length;
       pagesTried++;
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 100));
     } catch (e) {
       console.warn('[trx-data] chunk failed:', e.message);
       break;
@@ -178,7 +179,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
     total: collected.length,
     pageNo: 1,
     pageSize: collected.length,
-    hasMore: !exhausted && collected.length < callerLimit,
+    hasMore: !exhausted && collected.length < effectiveLimit,
   };
 }
 
