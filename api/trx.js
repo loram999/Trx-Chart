@@ -595,51 +595,19 @@ module.exports = async function handler(req, res) {
     }
 
     // ── getHistory ──
+    // History is now tracked client-side (localStorage) — bets placed via the
+    // app are recorded locally and resolved when chart data arrives. This
+    // action is kept as a no-op shim for backwards compatibility.
     if (action === 'getHistory') {
-      const session = sessionFromCreds(body);
-      if (!session) {
-        sendJson(res, 401, { success: false, error: 'Not authenticated' });
-        return;
-      }
-      const pageNo = Math.max(parseInt(body.pageNo || '1', 10) || 1, 1);
-      const pageSize = Math.min(
-        Math.max(parseInt(body.pageSize || '20', 10) || 20, 1),
-        100
-      );
-      const sourcePref = (body.source || 'emerd').toLowerCase();
-
-      // Try the preferred source first, fall back to the other if it returns
-      // empty / errored so the History tab always shows the user's bets.
-      let result;
-      let source;
-      const attempts = sourcePref === 'legacy'
-        ? ['legacy', 'emerd']
-        : ['emerd', 'legacy'];
-
-      for (const which of attempts) {
-        if (which === 'emerd') {
-          result = await getMyEmerdList(session, { pageNo, pageSize });
-          source = 'emerd';
-        } else {
-          result = await getRecentBets(session, pageNo, pageSize);
-          source = 'legacy';
-        }
-        log('INFO', `getHistory source=${source} list=${(result.list || []).length} err=${result.error || ''}`);
-        if ((result.list || []).length > 0) break;
-      }
-
-      const history = (result.list || []).map(mapBetRecord);
       sendJson(res, 200, {
         success: true,
-        history,
-        source,
-        pageNo: result.pageNo,
-        pageSize: result.pageSize,
-        total: result.total,
-        hasMore:
-          result.total != null
-            ? pageNo * pageSize < result.total
-            : (result.list || []).length === pageSize,
+        history: [],
+        pageNo: 1,
+        pageSize: 0,
+        total: 0,
+        hasMore: false,
+        source: 'client-localstorage',
+        note: 'History now reads from browser localStorage (trx_bet_history).',
       });
       return;
     }

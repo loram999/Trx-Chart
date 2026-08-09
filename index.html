@@ -1212,6 +1212,7 @@ async function fetchData() {
                     applyUpdate(quickList);
                     updateHeader(quickList);
                     updatePrediction(quickList);
+                    resolvePendingBets(quickList);
                 }
             }
             // ── Phase 2: full 10k load in background ─────────────────────
@@ -1225,6 +1226,7 @@ async function fetchData() {
                         applyUpdate(fullList);
                         updateHeader(fullList);
                         updatePrediction(fullList);
+                        resolvePendingBets(fullList);
                     }
                 } catch(e) { console.warn('[TRX full load]', e); }
             }, 500);
@@ -1237,6 +1239,7 @@ async function fetchData() {
             applyUpdate(list);
             updateHeader(list);
             updatePrediction(list);
+            resolvePendingBets(list);
         }
     } catch (err) {
         console.error('[TRX]', err);
@@ -2334,6 +2337,81 @@ function apiRequest(endpoint, method = 'POST', body = null) {
     return fetch(endpoint, options).then(r => r.json());
 }
 
+/* ══════════════════════════════════════════
+   BET HISTORY (localStorage)
+══════════════════════════════════════════ */
+const BET_HISTORY_KEY = 'trx_bet_history';
+const BET_HISTORY_MAX = 500;
+
+function getBetHistoryStorage() {
+    try {
+        const raw = localStorage.getItem(BET_HISTORY_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+}
+
+function saveBetHistoryStorage(arr) {
+    try {
+        localStorage.setItem(BET_HISTORY_KEY, JSON.stringify(arr));
+    } catch (e) {
+        console.warn('[bet-history] save failed:', e);
+    }
+}
+
+function recordBet({ period, choice, choiceCode, amount }) {
+    if (!period) return;
+    const history = getBetHistoryStorage();
+    // Avoid duplicates from rapid double-clicks
+    if (history.some((b) => b.period === period && b.choiceCode === choiceCode && b.placedAt > Date.now() - 5000)) {
+        return;
+    }
+    history.unshift({
+        period: String(period),
+        choice: String(choice),
+        choiceCode: Number(choiceCode) || 0,
+        amount: Number(amount) || 0,
+        placedAt: Date.now(),
+        result: 'PENDING',
+        resultNumber: null,
+    });
+    if (history.length > BET_HISTORY_MAX) history.length = BET_HISTORY_MAX;
+    saveBetHistoryStorage(history);
+}
+
+function resolveBetsForDraw(period, drawNumber) {
+    if (!period || drawNumber == null) return false;
+    const n = parseInt(drawNumber, 10);
+    if (isNaN(n)) return false;
+    const drawResult = n >= 5 ? 'B' : 'S';
+    const history = getBetHistoryStorage();
+    let changed = false;
+    for (const bet of history) {
+        if (String(bet.period) === String(period) && bet.result === 'PENDING') {
+            bet.result = bet.choice === drawResult ? 'WIN' : 'LOSE';
+            bet.resultNumber = String(n);
+            changed = true;
+        }
+    }
+    if (changed) saveBetHistoryStorage(history);
+    return changed;
+}
+
+function resolvePendingBets(draws) {
+    if (!Array.isArray(draws)) return;
+    for (const draw of draws) {
+        const period = draw.issueNumber || draw.issuenumber || draw.period;
+        const number = draw.number ?? draw.openNumber ?? draw.result;
+        if (period != null && number != null) {
+            resolveBetsForDraw(period, number);
+        }
+    }
+}
+
+function clearBetHistory() {
+    localStorage.removeItem(BET_HISTORY_KEY);
+}
+
 function selectSite(site) {
     TRX.selectedSite = site;
     document.querySelectorAll('.site-btn').forEach(b => b.classList.remove('active'));
@@ -2517,9 +2595,15 @@ async function placeBet(choice) {
         });
 
         if (betRes.success) {
+            recordBet({
+                period: issueRes.issueNumber,
+                choice,
+                choiceCode: selectType,
+                amount,
+            });
             alert(`✓ Order Placed!\n${choice === 'B' ? 'BIG' : 'SMALL'} ${amount} Ks\nIssue ${issueRes.issueNumber}`);
             refreshBalance();
-            setTimeout(() => loadBetHistory(), 1500);
+            setTimeout(() => loadBetHistory(), 300);
             switchResultTab('betHistory');
         } else {
             alert('Bet failed: ' + (betRes.error || 'unknown'));
@@ -2598,92 +2682,73 @@ async function loadBetHistory(opts = {}) {
     const list = document.getElementById('betHistoryList');
     if (!list) return;
     const creds = getCreds();
-    if (!creds || !creds.token) {
-        list.innerHTML = '<div class="empty-state">Login to view bet history.</div>';
-        _renderHistoryPager();
-        return;
-    }
     const pageNo = opts.pageNo || _histState.pageNo || 1;
     const pageSize = opts.pageSize || _histState.pageSize || 20;
     const site = detectSiteFromCreds(creds);
-    if (opts.append && opts.target) {
-        // Append mode for "load more"
-    }
+
     _histState.loading = true;
-    list.insertAdjacentHTML('beforeend', '<div class="history-loading" data-loading>Loading…</div>');
     try {
-        const data = await apiRequest('/api/trx?action=getHistory', 'POST', {
-            token: creds.token,
-            tokenHeader: creds.tokenHeader,
-            baseUrl: creds.baseUrl,
+        const all = getBetHistoryStorage();
+        const total = all.length;
+        const start = (pageNo - 1) * pageSize;
+        const slice = all.slice(start, start + pageSize);
+
+        setHistoryPagerState({
             pageNo,
             pageSize,
+            total,
+            hasMore: start + slice.length < total,
         });
-        list.querySelectorAll('[data-loading]').forEach((n) => n.remove());
-        _histState.loading = false;
-        if (!data.success || !data.history) {
-            const errMsg = data.error || _histState.lastError || 'Failed to load history.';
-            list.innerHTML = `<div class="empty-state">${errMsg}</div>`;
-            setHistoryPagerState({ pageNo, pageSize, total: 0, hasMore: false });
-            _renderHistoryPager();
-            return;
-        }
-        const history = data.history;
-        setHistoryPagerState({
-            pageNo: data.pageNo || pageNo,
-            pageSize: data.pageSize || pageSize,
-            total: data.total != null ? data.total : null,
-            hasMore: !!data.hasMore,
-        });
-        if (pageNo === 1) list.innerHTML = '';
-        if (history.length === 0 && pageNo === 1) {
-            list.innerHTML = `<div class="empty-state">No bets yet on ${site || 'this site'}.</div>`;
-            _renderHistoryPager();
-            return;
-        }
-        const rows = history.map((item) => {
-            const choice = String(item.choice || '').toUpperCase();
-            const betText = choice === 'B' ? 'BIG' : (choice === 'S' ? 'SMALL' : choice);
-            const betClass = choice === 'B' ? 'big' : (choice === 'S' ? 'small' : '');
-            const result = String(item.result || 'PENDING').toUpperCase();
-            const isWin = result === 'WIN';
-            const isLose = result === 'LOSE' || result === 'LOSS';
-            const isPending = result === 'PENDING';
-            const resultClass = isWin ? 'win' : isLose ? 'loss' : 'pending';
-            const resultText = isWin ? 'WIN' : isLose ? 'LOSE' : 'PENDING';
-            const amount = Number(item.amount) || 0;
-            const profit = Number(item.profit);
-            let amountText = `${amount.toLocaleString()} Ks`;
-            if (isWin) amountText = `+${Math.abs(profit || amount).toLocaleString()} Ks`;
-            else if (isLose) amountText = `-${Math.abs(profit ? Math.abs(profit) : amount).toLocaleString()} Ks`;
-            const periodShort = String(item.period || '').slice(-8);
-            const drawHtml = item.resultNumber !== null && item.resultNumber !== undefined && item.resultNumber !== ''
-                ? `<span class="bet-draw">Draw ${item.resultNumber}</span>` : '';
-            return `
-                <div class="bet-row">
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                        <span class="bet-period">#${periodShort || item.period}</span>
-                        <span class="bet-tag ${betClass}">${betText}</span>
-                        ${drawHtml}
+
+        if (slice.length === 0) {
+            const msg = pageNo === 1
+                ? (creds && creds.token
+                    ? 'No bets yet. Tap BIG or SMALL to place your first order.'
+                    : 'Login to place bets.')
+                : 'No more bets.';
+            list.innerHTML = `<div class="empty-state">${msg}</div>`;
+        } else {
+            list.innerHTML = slice.map((item) => {
+                const choice = String(item.choice || '').toUpperCase();
+                const betText = choice === 'B' ? 'BIG' : (choice === 'S' ? 'SMALL' : choice);
+                const betClass = choice === 'B' ? 'big' : (choice === 'S' ? 'small' : '');
+                const result = String(item.result || 'PENDING').toUpperCase();
+                const isWin = result === 'WIN';
+                const isLose = result === 'LOSE' || result === 'LOSS';
+                const isPending = result === 'PENDING';
+                const resultClass = isWin ? 'win' : isLose ? 'loss' : 'pending';
+                const resultText = isWin ? 'WIN' : isLose ? 'LOSE' : 'PENDING';
+                const amount = Number(item.amount) || 0;
+                let amountText = `${amount.toLocaleString()} Ks`;
+                if (isWin) amountText = `+${amount.toLocaleString()} Ks`;
+                else if (isLose) amountText = `-${amount.toLocaleString()} Ks`;
+                const periodShort = String(item.period || '').slice(-8);
+                const drawHtml = item.resultNumber !== null && item.resultNumber !== undefined && item.resultNumber !== ''
+                    ? `<span class="bet-draw">Draw ${item.resultNumber}</span>` : '';
+                return `
+                    <div class="bet-row">
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <span class="bet-period">#${periodShort || item.period}</span>
+                            <span class="bet-tag ${betClass}">${betText}</span>
+                            ${drawHtml}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span class="bet-amount ${resultClass}">${amountText}</span>
+                            <span class="bet-result-badge ${resultClass}">${resultText}</span>
+                        </div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="bet-amount ${resultClass}">${amountText}</span>
-                        <span class="bet-result-badge ${resultClass}">${resultText}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        list.insertAdjacentHTML('beforeend', rows);
-        if (site) {
-            const tag = document.getElementById('historySiteTag');
-            if (tag) tag.textContent = `· ${site}`;
+                `;
+            }).join('');
         }
+
+        const tag = document.getElementById('historySiteTag');
+        if (tag) tag.textContent = site ? `· ${site}` : '';
         _renderHistoryPager();
     } catch (e) {
-        list.querySelectorAll('[data-loading]').forEach((n) => n.remove());
-        _histState.loading = false;
         list.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
         _renderHistoryPager();
+    } finally {
+        _histState.loading = false;
     }
 }
 
