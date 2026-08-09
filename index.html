@@ -1112,7 +1112,13 @@ function applyUpdate(list) {
         // Use last MAX_CANDLES games
         const initial = sorted.slice(-CFG.MAX_CANDLES);
         processedCandles = buildCandles(initial);
-        candleSeries.setData(processedCandles);
+        try {
+            candleSeries.setData(processedCandles);
+        } catch (e) {
+            console.warn('[TRX] setData failed, falling back to update()', e);
+            // Fallback: feed each candle via update()
+            processedCandles.forEach(c => { try { candleSeries.update(c); } catch(_) {} });
+        }
 
         // Track state for future incremental updates
         if (processedCandles.length > 0) {
@@ -1122,8 +1128,10 @@ function applyUpdate(list) {
             ? initial[initial.length - 1].issueNumber
             : null;
 
-        const from = Math.max(0, processedCandles.length - 120);
-        chart.timeScale().setVisibleLogicalRange({ from, to: processedCandles.length + 10 });
+        try {
+            const from = Math.max(0, processedCandles.length - 120);
+            chart.timeScale().setVisibleLogicalRange({ from, to: processedCandles.length + 10 });
+        } catch (e) { console.warn('[TRX] setVisibleLogicalRange failed', e); }
         isFirstLoad = false;
         document.getElementById('loadingOverlay').style.display = 'none';
         return;
@@ -1222,6 +1230,13 @@ function buildDrawUrl(limit) {
 }
 
 async function fetchData() {
+    // Hide the overlay as soon as a fetch returns — even an empty one —
+    // so the user never gets stuck on the spinner if applyUpdate throws
+    // somewhere downstream.
+    const _hideOverlay = () => {
+        const ov = document.getElementById('loadingOverlay');
+        if (ov) ov.style.display = 'none';
+    };
     try {
         if (!_initialLoadDone) {
             // ── Phase 1: quick load (1200 candles) — chart shows fast ──────
@@ -1229,11 +1244,17 @@ async function fetchData() {
             if (quickRes.ok) {
                 const quickList = extractDrawList(await quickRes.json());
                 if (quickList.length > 0) {
-                    applyUpdate(quickList);
-                    updateHeader(quickList);
-                    updatePrediction(quickList);
-                    resolvePendingBets(quickList);
+                    try { applyUpdate(quickList); }
+                    catch (e) { console.error('[TRX applyUpdate quick]', e); }
+                    _hideOverlay();
+                    try { updateHeader(quickList); } catch (e) { console.warn('[TRX header]', e); }
+                    try { updatePrediction(quickList); } catch (e) { console.warn('[TRX pred]', e); }
+                    try { resolvePendingBets(quickList); } catch (e) { console.warn('[TRX bets]', e); }
+                } else {
+                    _hideOverlay();
                 }
+            } else {
+                _hideOverlay();
             }
             // ── Phase 2: full 10k load in background ─────────────────────
             _initialLoadDone = true;
@@ -1243,10 +1264,12 @@ async function fetchData() {
                     if (!fullRes.ok) return;
                     const fullList = extractDrawList(await fullRes.json());
                     if (fullList.length > 0) {
-                        applyUpdate(fullList);
-                        updateHeader(fullList);
-                        updatePrediction(fullList);
-                        resolvePendingBets(fullList);
+                        try { applyUpdate(fullList); }
+                        catch (e) { console.error('[TRX applyUpdate full]', e); }
+                        _hideOverlay();
+                        try { updateHeader(fullList); } catch (e) { console.warn('[TRX header]', e); }
+                        try { updatePrediction(fullList); } catch (e) { console.warn('[TRX pred]', e); }
+                        try { resolvePendingBets(fullList); } catch (e) { console.warn('[TRX bets]', e); }
                     }
                 } catch(e) { console.warn('[TRX full load]', e); }
             }, 500);
@@ -1255,14 +1278,17 @@ async function fetchData() {
             const res  = await fetch(buildDrawUrl(10000));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const list = extractDrawList(await res.json());
-            if (list.length === 0) return;
-            applyUpdate(list);
-            updateHeader(list);
-            updatePrediction(list);
-            resolvePendingBets(list);
+            if (list.length === 0) { _hideOverlay(); return; }
+            try { applyUpdate(list); }
+            catch (e) { console.error('[TRX applyUpdate tick]', e); }
+            _hideOverlay();
+            try { updateHeader(list); } catch (e) { console.warn('[TRX header]', e); }
+            try { updatePrediction(list); } catch (e) { console.warn('[TRX pred]', e); }
+            try { resolvePendingBets(list); } catch (e) { console.warn('[TRX bets]', e); }
         }
     } catch (err) {
         console.error('[TRX]', err);
+        _hideOverlay();
     }
 }
 
