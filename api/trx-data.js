@@ -112,28 +112,27 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
 
   const collected = [];
   const seen = new Set();
-  // 600 blocks ≈ 5 min of TRX — enough lottery draws (60) per chunk with margin.
-  const CHUNK = 600;
-  const MAX_CHUNKS = Math.ceil(callerLimit / 5) + 4; // ~5 draws per 600-block chunk
-  // TRX produces a block every ~3s → ~20 blocks/min. A draw occurs once per
-  // minute (at second :54), so ~1 draw per 60 TRX blocks.
+  // Tronscan caps each request at 50 rows regardless of the requested limit.
+  // TRX produces a block every ~3s, so 50 blocks ≈ 2.5 minutes. To collect
+  // `callerLimit` lottery draws (one per minute at second :54), we walk back
+  // ~60 blocks per expected draw × callerLimit + a buffer.
+  const PAGE_SIZE = 50;
   const BLOCKS_PER_DRAW = 60;
-  const blocksNeeded = callerLimit * BLOCKS_PER_DRAW;
+  const blocksNeeded = Math.min(callerLimit * BLOCKS_PER_DRAW + 200, 50000);
+  const maxPages = Math.ceil(blocksNeeded / PAGE_SIZE) + 2;
 
-  let toBlock = currentBlock;
-  let chunksTried = 0;
+  let offset = 0;
+  let pagesTried = 0;
   let oldestSeenBlock = currentBlock;
+  let exhausted = false;
 
-  while (collected.length < callerLimit && chunksTried < MAX_CHUNKS) {
-    const fromBlock = Math.max(1, toBlock - CHUNK);
-    const offset = Math.max(0, currentBlock - toBlock);
-    const want = Math.min(toBlock - fromBlock + 1, 1000);
-
+  while (collected.length < callerLimit && pagesTried < maxPages && !exhausted) {
     try {
-      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${want}&_ts=${Date.now()}`;
+      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
       const data = await fetchJson(upstream);
       const rows = Array.isArray(data.data) ? data.data : [];
-      oldestSeenBlock = rows.length ? (rows[rows.length - 1].number || oldestSeenBlock) : oldestSeenBlock;
+      if (rows.length === 0) { exhausted = true; break; }
+      oldestSeenBlock = rows[rows.length - 1].number || oldestSeenBlock;
 
       for (const row of rows) {
         const rec = lotteryRecordFromBlock(row);
@@ -144,10 +143,12 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
         if (collected.length >= callerLimit) break;
       }
 
-      if (rows.length < want) break; // ran out of upstream history
-      if (oldestSeenBlock <= 1) break;
-      toBlock = fromBlock;
-      chunksTried++;
+      // If the upstream returned less than PAGE_SIZE we've hit the end.
+      // Also stop if we've walked past block 1.
+      if (rows.length < PAGE_SIZE || oldestSeenBlock <= 1) exhausted = true;
+      offset += rows.length;
+      pagesTried++;
+      await new Promise((r) => setTimeout(r, 30));
     } catch (e) {
       console.warn('[trx-data] chunk failed:', e.message);
       break;
@@ -162,7 +163,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
     total: collected.length,
     pageNo: 1,
     pageSize: collected.length,
-    hasMore: oldestSeenBlock > 1 && collected.length < callerLimit,
+    hasMore: !exhausted && collected.length < callerLimit,
   };
 }
 
