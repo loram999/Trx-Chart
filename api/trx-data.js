@@ -107,9 +107,6 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
   const callerLimit = Math.min(parseInt(limit, 10) || 0, 5000);
   if (callerLimit <= 0) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
 
-  const currentBlock = await fetchCurrentBlock();
-  if (!currentBlock) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
-
   // Single fast page of recent TRX blocks (50 rows ≈ 2.5 minutes).
   // Tronscan caps each request at 50 rows and rate-limits aggressively
   // from cloud IPs; multi-page walkers get throttled. The chart's poll
