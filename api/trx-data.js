@@ -125,50 +125,28 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
   const currentBlock = await fetchCurrentBlock();
   if (!currentBlock) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
 
+  // Tronscan caps each request at 50 rows and rate-limits aggressively from
+  // cloud IPs. Strategy: fetch a single fast page (50 blocks ≈ 2.5 minutes
+  // of TRX) — this gives us ~8 lottery draws, enough to render the chart
+  // and hide the loading overlay. The chart's poll cycle accumulates more
+  // by re-calling and reading from edge cache.
+  const PAGE_SIZE = 50;
   const collected = [];
   const seen = new Set();
-  // Tronscan caps each request at 50 rows regardless of the requested limit.
-  // TRX produces a block every ~3s, so 50 blocks ≈ 2.5 minutes. We bound the
-  // walker by a maxPages cap (≈ 30 pages = 1500 blocks ≈ 25 minutes, well
-  // under Vercel's default 10s function timeout) so the chart gets *some*
-  // data quickly. The chart's poll cycle fills in the rest incrementally.
-  const PAGE_SIZE = 50;
-  const BLOCKS_PER_DRAW = 60;
-  const maxPages = 30;
-  const effectiveLimit = Math.min(callerLimit, maxPages * (PAGE_SIZE / BLOCKS_PER_DRAW));
 
-  let offset = 0;
-  let pagesTried = 0;
-  let oldestSeenBlock = currentBlock;
-  let exhausted = false;
-
-  while (collected.length < effectiveLimit && pagesTried < maxPages && !exhausted) {
-    try {
-      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
-      const data = await fetchJson(upstream);
-      const rows = Array.isArray(data.data) ? data.data : [];
-      if (rows.length === 0) { exhausted = true; break; }
-      oldestSeenBlock = rows[rows.length - 1].number || oldestSeenBlock;
-
-      for (const row of rows) {
-        const rec = lotteryRecordFromBlock(row);
-        if (!rec) continue;
-        if (seen.has(rec.issueNumber)) continue;
-        seen.add(rec.issueNumber);
-        collected.push(rec);
-        if (collected.length >= effectiveLimit) break;
-      }
-
-      // If the upstream returned less than PAGE_SIZE we've hit the end.
-      // Also stop if we've walked past block 1.
-      if (rows.length < PAGE_SIZE || oldestSeenBlock <= 1) exhausted = true;
-      offset += rows.length;
-      pagesTried++;
-      await new Promise((r) => setTimeout(r, 100));
-    } catch (e) {
-      console.warn('[trx-data] chunk failed:', e.message);
-      break;
+  try {
+    const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=0&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
+    const data = await fetchJson(upstream);
+    const rows = Array.isArray(data.data) ? data.data : [];
+    for (const row of rows) {
+      const rec = lotteryRecordFromBlock(row);
+      if (!rec) continue;
+      if (seen.has(rec.issueNumber)) continue;
+      seen.add(rec.issueNumber);
+      collected.push(rec);
     }
+  } catch (e) {
+    console.warn('[trx-data] fetch failed:', e.message);
   }
 
   // Sort ascending by issueNumber for chart consumption.
@@ -179,7 +157,7 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
     total: collected.length,
     pageNo: 1,
     pageSize: collected.length,
-    hasMore: !exhausted && collected.length < effectiveLimit,
+    hasMore: collected.length < callerLimit && currentBlock > 0,
   };
 }
 
