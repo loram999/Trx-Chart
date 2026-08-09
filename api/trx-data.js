@@ -125,28 +125,43 @@ async function fetchAllDraws({ limit = 1000 } = {}) {
   const currentBlock = await fetchCurrentBlock();
   if (!currentBlock) return { list: [], total: 0, pageNo: 1, pageSize: 0, hasMore: false };
 
-  // Tronscan caps each request at 50 rows and rate-limits aggressively from
-  // cloud IPs. Strategy: fetch a single fast page (50 blocks ≈ 2.5 minutes
-  // of TRX) — this gives us ~8 lottery draws, enough to render the chart
-  // and hide the loading overlay. The chart's poll cycle accumulates more
-  // by re-calling and reading from edge cache.
+  // Tronscan caps each request at 50 rows and rate-limits (429) after a
+  // handful of calls. Walk up to MAX_PAGES pages with backoff; return
+  // whatever we have if we hit rate limits mid-walk so the chart can
+  // render with partial data instead of staying empty.
   const PAGE_SIZE = 50;
+  const MAX_PAGES = 4;
   const collected = [];
   const seen = new Set();
+  let offset = 0;
 
-  try {
-    const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=0&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
-    const data = await fetchJson(upstream);
-    const rows = Array.isArray(data.data) ? data.data : [];
-    for (const row of rows) {
-      const rec = lotteryRecordFromBlock(row);
-      if (!rec) continue;
-      if (seen.has(rec.issueNumber)) continue;
-      seen.add(rec.issueNumber);
-      collected.push(rec);
+  for (let p = 0; p < MAX_PAGES; p++) {
+    try {
+      const upstream = `${TRONSCAN_BLOCK}?sort=-number&start=${offset}&limit=${PAGE_SIZE}&_ts=${Date.now()}`;
+      const data = await fetchJson(upstream);
+      const rows = Array.isArray(data.data) ? data.data : [];
+      if (rows.length === 0) break;
+
+      let added = 0;
+      for (const row of rows) {
+        const rec = lotteryRecordFromBlock(row);
+        if (!rec) continue;
+        if (seen.has(rec.issueNumber)) continue;
+        seen.add(rec.issueNumber);
+        collected.push(rec);
+        added++;
+      }
+
+      offset += rows.length;
+      // If we got nothing new from this page, upstream is duplicating — stop.
+      if (added === 0) break;
+      if (rows.length < PAGE_SIZE) break;
+      // Small delay between pages to be polite to tronscan.
+      await new Promise((r) => setTimeout(r, 150));
+    } catch (e) {
+      console.warn('[trx-data] page', p + 1, 'failed:', e.message);
+      break;
     }
-  } catch (e) {
-    console.warn('[trx-data] fetch failed:', e.message);
   }
 
   // Sort ascending by issueNumber for chart consumption.
